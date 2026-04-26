@@ -22,7 +22,8 @@ export async function parseMigrations(
 ): Promise<DetectedMigration[]> {
   const out: DetectedMigration[] = [];
   const successful = sigs.filter((s) => !s.err);
-  const batchSize = 100;
+  console.log(`[parse] ${successful.length} successful txs to inspect…`);
+  const batchSize = 50;
   for (let i = 0; i < successful.length; i += batchSize) {
     const batch = successful.slice(i, i + batchSize);
     const txs = await getParsedTransactions(batch.map((s) => s.signature));
@@ -30,6 +31,9 @@ export async function parseMigrations(
       const m = detectMigration(tx, batch[idx].signature);
       if (m) out.push(m);
     });
+    console.log(
+      `[parse] ${Math.min(i + batchSize, successful.length)}/${successful.length} (found ${out.length} migrations so far)`,
+    );
   }
   return out;
 }

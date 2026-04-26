@@ -12,16 +12,28 @@ function rpcUrl() {
 
 export const PUMPSWAP_PROGRAM_ID = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA";
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
-  const res = await fetch(rpcUrl(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params }),
-  });
-  if (!res.ok) throw new Error(`Helius ${method} ${res.status}`);
-  const body = (await res.json()) as { result?: T; error?: { message: string } };
-  if (body.error) throw new Error(`Helius ${method}: ${body.error.message}`);
-  return body.result as T;
+  let attempt = 0;
+  while (true) {
+    const res = await fetch(rpcUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params }),
+    });
+    if (res.status === 429 || res.status >= 500) {
+      if (attempt >= 6) throw new Error(`Helius ${method} ${res.status} after retries`);
+      const backoff = Math.min(30_000, 500 * 2 ** attempt) + Math.random() * 250;
+      await sleep(backoff);
+      attempt++;
+      continue;
+    }
+    if (!res.ok) throw new Error(`Helius ${method} ${res.status}`);
+    const body = (await res.json()) as { result?: T; error?: { message: string } };
+    if (body.error) throw new Error(`Helius ${method}: ${body.error.message}`);
+    return body.result as T;
+  }
 }
 
 export type SignatureInfo = {
@@ -35,6 +47,8 @@ export type SignatureInfo = {
  * Page through signatures for an address (program or mint), newest first.
  * Stops when `untilTs` (unix seconds) is reached.
  */
+const THROTTLE_MS = Number(process.env.HELIUS_THROTTLE_MS ?? 1200);
+
 export async function getSignaturesUntil(
   address: string,
   untilTs: number,
@@ -54,6 +68,7 @@ export async function getSignaturesUntil(
     }
     before = page[page.length - 1]?.signature;
     if (!before) break;
+    await sleep(THROTTLE_MS);
   }
   return out;
 }
@@ -86,38 +101,18 @@ export type ParsedInstruction = {
 export async function getParsedTransactions(
   signatures: string[],
 ): Promise<(ParsedTransaction | null)[]> {
-  const chunks: string[][] = [];
-  for (let i = 0; i < signatures.length; i += 100) {
-    chunks.push(signatures.slice(i, i + 100));
-  }
   const out: (ParsedTransaction | null)[] = [];
-  for (const chunk of chunks) {
-    const res = await fetch(rpcUrl(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        chunk.map((sig, i) => ({
-          jsonrpc: "2.0",
-          id: i,
-          method: "getTransaction",
-          params: [
-            sig,
-            {
-              maxSupportedTransactionVersion: 0,
-              encoding: "jsonParsed",
-              commitment: "confirmed",
-            },
-          ],
-        })),
-      ),
-    });
-    if (!res.ok) throw new Error(`Helius batch getTransaction ${res.status}`);
-    const body = (await res.json()) as {
-      id: number;
-      result: ParsedTransaction | null;
-    }[];
-    body.sort((a, b) => a.id - b.id);
-    out.push(...body.map((b) => b.result));
+  for (let i = 0; i < signatures.length; i++) {
+    const tx = await rpc<ParsedTransaction | null>("getTransaction", [
+      signatures[i],
+      {
+        maxSupportedTransactionVersion: 0,
+        encoding: "jsonParsed",
+        commitment: "confirmed",
+      },
+    ]);
+    out.push(tx);
+    if (i < signatures.length - 1) await sleep(THROTTLE_MS);
   }
   return out;
 }
