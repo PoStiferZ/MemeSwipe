@@ -15,12 +15,14 @@ export function FilterBar({
   onRefresh,
   refreshing,
   pendingCount,
+  remaining,
 }: {
   filters: Filters;
   onChange: (next: Filters) => void;
   onRefresh: () => void;
   refreshing: boolean;
   pendingCount: number | null;
+  remaining: number | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -28,6 +30,11 @@ export function FilterBar({
     <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur">
       <div className="flex items-center gap-2 px-4 py-3">
         <h1 className="text-lg font-bold tracking-tight">MemeSwipe</h1>
+        {remaining != null ? (
+          <span className="rounded-full bg-card px-2 py-0.5 text-xs text-white/70">
+            {formatInt(remaining)} left
+          </span>
+        ) : null}
         <button
           onClick={() => setOpen((o) => !o)}
           className="ml-auto rounded-full border border-line px-3 py-1 text-xs"

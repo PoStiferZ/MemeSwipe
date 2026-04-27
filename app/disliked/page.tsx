@@ -1,9 +1,9 @@
 import { SwipesListView } from "@/components/SwipesListView";
 
-export default function LikedPage() {
+export default function DislikedPage() {
   return (
     <main className="min-h-dvh">
-      <SwipesListView kind="liked" />
+      <SwipesListView kind="disliked" />
     </main>
   );
 }

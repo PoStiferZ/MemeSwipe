@@ -84,6 +84,11 @@ export async function GET(req: NextRequest) {
     .orderBy(desc(schema.tokens.migratedAt))
     .limit(q.limit);
 
+  const [{ count: totalRemaining = 0 } = { count: 0 }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(schema.tokens)
+    .where(conditions.length ? and(...conditions) : undefined);
+
   const refreshed = await refreshStaleBatch(rows);
 
   const nextCursor =
@@ -91,5 +96,9 @@ export async function GET(req: NextRequest) {
       ? refreshed[refreshed.length - 1].migratedAt?.toISOString()
       : null;
 
-  return NextResponse.json({ tokens: refreshed, nextCursor });
+  return NextResponse.json({
+    tokens: refreshed,
+    nextCursor,
+    totalRemaining,
+  });
 }

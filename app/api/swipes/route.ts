@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 
 export const runtime = "nodejs";
@@ -32,6 +32,26 @@ export async function POST(req: NextRequest) {
       set: { action, createdAt: new Date() },
     });
 
+  return NextResponse.json({ ok: true });
+}
+
+const DeleteBody = z.object({
+  wallet: z.string().min(32).max(44),
+  mint: z.string().min(32).max(44),
+});
+
+export async function DELETE(req: NextRequest) {
+  const json = await req.json().catch(() => null);
+  const parsed = DeleteBody.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.format() }, { status: 400 });
+  }
+  const { wallet, mint } = parsed.data;
+  await db
+    .delete(schema.swipes)
+    .where(
+      and(eq(schema.swipes.wallet, wallet), eq(schema.swipes.mint, mint)),
+    );
   return NextResponse.json({ ok: true });
 }
 

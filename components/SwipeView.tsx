@@ -5,10 +5,15 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { SwipeDeck } from "./SwipeDeck";
+import { BottomNav } from "./BottomNav";
 import { swipe } from "@/lib/client/session";
 import { DEFAULT_FILTERS, type ApiToken, type Filters } from "@/lib/types";
 
-type TokensPage = { tokens: ApiToken[]; nextCursor: string | null };
+type TokensPage = {
+  tokens: ApiToken[];
+  nextCursor: string | null;
+  totalRemaining?: number;
+};
 
 export function SwipeView() {
   const wallet = useWallet();
@@ -50,6 +55,7 @@ export function SwipeView() {
   });
 
   const tokens = data?.pages.flatMap((p) => p.tokens) ?? [];
+  const totalRemaining = data?.pages[0]?.totalRemaining ?? null;
 
   const refreshActiveCard = useCallback(
     async (mint: string) => {
@@ -122,6 +128,7 @@ export function SwipeView() {
         onRefresh={() => refreshMut.mutate()}
         refreshing={refreshMut.isPending}
         pendingCount={pendingNew}
+        remaining={totalRemaining}
       />
 
       <div className="flex-1 px-4 pt-6">
@@ -140,14 +147,7 @@ export function SwipeView() {
         )}
       </div>
 
-      <nav className="sticky bottom-0 mt-4 flex border-t border-line bg-bg/80 backdrop-blur">
-        <a className="flex-1 py-3 text-center text-sm font-medium" href="/">
-          Swipe
-        </a>
-        <a className="flex-1 py-3 text-center text-sm text-white/60" href="/liked">
-          Liked
-        </a>
-      </nav>
+      <BottomNav active="swipe" />
 
       {toast ? (
         <div
