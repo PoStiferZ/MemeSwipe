@@ -137,3 +137,37 @@ export async function fetchEnriched(mint: string): Promise<EnrichedDexData> {
   const pair = await fetchTopSolanaPair(mint);
   return enrich(pair);
 }
+
+const BATCH_LIMIT = 30;
+
+/**
+ * Batch endpoint: up to 30 tokens per call, returns highest-liquidity
+ * Solana pair per mint. Falls back to enrich(null) for missing mints.
+ */
+export async function fetchManyEnriched(
+  mints: string[],
+): Promise<Map<string, EnrichedDexData>> {
+  const out = new Map<string, EnrichedDexData>();
+  for (const m of mints) out.set(m, enrich(null));
+  if (mints.length === 0) return out;
+
+  for (let i = 0; i < mints.length; i += BATCH_LIMIT) {
+    const batch = mints.slice(i, i + BATCH_LIMIT);
+    const url = `${BASE}/tokens/v1/solana/${batch.join(",")}`;
+    const pairs = await fetchJson<DexPair[]>(url);
+    if (!pairs) continue;
+
+    const byMint = new Map<string, DexPair[]>();
+    for (const p of pairs) {
+      if (p.chainId !== "solana") continue;
+      const mint = p.baseToken.address;
+      if (!byMint.has(mint)) byMint.set(mint, []);
+      byMint.get(mint)!.push(p);
+    }
+    for (const [mint, ps] of byMint) {
+      ps.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
+      out.set(mint, enrich(ps[0]));
+    }
+  }
+  return out;
+}

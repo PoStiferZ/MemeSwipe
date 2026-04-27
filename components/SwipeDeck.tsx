@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useMotionValue, useTransform } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TokenCard } from "./TokenCard";
 import type { ApiToken } from "@/lib/types";
 
@@ -11,13 +11,19 @@ export function SwipeDeck({
   tokens,
   onSwipe,
   onEmpty,
+  onActiveCard,
 }: {
   tokens: ApiToken[];
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
   onEmpty?: () => void;
+  onActiveCard?: (mint: string) => void;
 }) {
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const visible = tokens.filter((t) => !removed.has(t.mint)).slice(0, 3);
+
+  useEffect(() => {
+    if (visible[0] && onActiveCard) onActiveCard(visible[0].mint);
+  }, [visible[0]?.mint, onActiveCard]);
 
   function commit(token: ApiToken, action: "like" | "dislike") {
     setRemoved((prev) => {

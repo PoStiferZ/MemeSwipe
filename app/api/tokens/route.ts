@@ -2,86 +2,52 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, desc, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db/client";
-import { fetchEnriched } from "@/lib/sources/dexscreener";
+import { fetchManyEnriched } from "@/lib/sources/dexscreener";
+import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STALE_MS = 60_000;
-const REFRESH_CONCURRENCY = 6;
+const STALE_MS = 30_000;
 
 const QuerySchema = z.object({
   minMcap: z.coerce.number().nonnegative().optional(),
   maxMcap: z.coerce.number().nonnegative().optional(),
   minHolders: z.coerce.number().int().nonnegative().optional(),
-  since: z.coerce.number().int().optional(), // unix seconds
+  since: z.coerce.number().int().optional(),
   until: z.coerce.number().int().optional(),
-  cursor: z.string().optional(), // ISO timestamp of last `migratedAt`
+  cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(15),
   excludeWallet: z.string().optional(),
 });
 
 type TokenRow = typeof schema.tokens.$inferSelect;
 
-async function refreshIfStale(row: TokenRow, now: Date): Promise<TokenRow> {
-  const last = row.lastSnapshotAt?.getTime() ?? 0;
-  if (now.getTime() - last < STALE_MS) return row;
-
-  try {
-    const dex = await fetchEnriched(row.mint);
-    if (dex.priceUsd == null) return row;
-
-    const oldAth = Number(row.athUsd ?? 0);
-    const newAth = Math.max(oldAth, dex.priceUsd);
-    const athAt = newAth > oldAth ? now : row.athAt;
-
-    const patch = {
-      priceUsd: String(dex.priceUsd),
-      mcapUsd: dex.mcapUsd != null ? String(dex.mcapUsd) : null,
-      fdvUsd: dex.fdvUsd != null ? String(dex.fdvUsd) : null,
-      liquidityUsd: dex.liquidityUsd != null ? String(dex.liquidityUsd) : null,
-      volume24h: dex.volume24h != null ? String(dex.volume24h) : null,
-      change2h: dex.change2h != null ? String(dex.change2h) : null,
-      change6h: dex.change6h != null ? String(dex.change6h) : null,
-      change24h: dex.change24h != null ? String(dex.change24h) : null,
-      athUsd: String(newAth),
-      athAt,
-      lastSnapshotAt: now,
-    };
-
-    await db
-      .update(schema.tokens)
-      .set(patch)
-      .where(sql`${schema.tokens.mint} = ${row.mint}`);
-
-    await db.insert(schema.priceSnapshots).values({
-      mint: row.mint,
-      priceUsd: patch.priceUsd,
-      mcapUsd: patch.mcapUsd,
-      liquidityUsd: patch.liquidityUsd,
-      volume24h: patch.volume24h,
-    });
-
-    return { ...row, ...patch };
-  } catch {
-    return row;
-  }
-}
-
-async function refreshAll(rows: TokenRow[]): Promise<TokenRow[]> {
+async function refreshStaleBatch(rows: TokenRow[]): Promise<TokenRow[]> {
   const now = new Date();
-  const out: TokenRow[] = new Array(rows.length);
-  let cursor = 0;
+  const stale = rows.filter(
+    (r) => now.getTime() - (r.lastSnapshotAt?.getTime() ?? 0) >= STALE_MS,
+  );
+  if (stale.length === 0) return rows;
+
+  let dexMap;
+  try {
+    dexMap = await fetchManyEnriched(stale.map((r) => r.mint));
+  } catch {
+    return rows;
+  }
+
+  const updated = new Map<string, TokenRow>();
   await Promise.all(
-    Array.from({ length: REFRESH_CONCURRENCY }, async () => {
-      while (true) {
-        const i = cursor++;
-        if (i >= rows.length) return;
-        out[i] = await refreshIfStale(rows[i], now);
-      }
+    stale.map(async (row) => {
+      const dex = dexMap.get(row.mint);
+      if (!dex || dex.priceUsd == null) return;
+      const next = await applyDexPatch(row, dex, now);
+      updated.set(row.mint, next);
     }),
   );
-  return out;
+
+  return rows.map((r) => updated.get(r.mint) ?? r);
 }
 
 export async function GET(req: NextRequest) {
@@ -105,7 +71,6 @@ export async function GET(req: NextRequest) {
     conditions.push(sql`${schema.tokens.migratedAt} <= ${new Date(q.until * 1000)}`);
   if (q.cursor) conditions.push(lt(schema.tokens.migratedAt, new Date(q.cursor)));
 
-  // Exclude tokens already swiped by the wallet.
   if (q.excludeWallet) {
     conditions.push(
       sql`not exists (select 1 from ${schema.swipes} s where s.mint = ${schema.tokens.mint} and s.wallet = ${q.excludeWallet})`,
@@ -119,7 +84,7 @@ export async function GET(req: NextRequest) {
     .orderBy(desc(schema.tokens.migratedAt))
     .limit(q.limit);
 
-  const refreshed = await refreshAll(rows);
+  const refreshed = await refreshStaleBatch(rows);
 
   const nextCursor =
     refreshed.length === q.limit

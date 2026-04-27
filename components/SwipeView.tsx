@@ -51,6 +51,34 @@ export function SwipeView() {
 
   const tokens = data?.pages.flatMap((p) => p.tokens) ?? [];
 
+  const refreshActiveCard = useCallback(
+    async (mint: string) => {
+      try {
+        const res = await fetch(`/api/tokens/${mint}`);
+        if (!res.ok) return;
+        const { token } = (await res.json()) as { token: ApiToken };
+        qc.setQueryData<{ pages: TokensPage[]; pageParams: unknown[] }>(
+          queryKey,
+          (prev) =>
+            prev
+              ? {
+                  ...prev,
+                  pages: prev.pages.map((p) => ({
+                    ...p,
+                    tokens: p.tokens.map((t) =>
+                      t.mint === mint ? token : t,
+                    ),
+                  })),
+                }
+              : prev,
+        );
+      } catch {
+        // silent
+      }
+    },
+    [qc, queryKey],
+  );
+
   const swipeMut = useMutation({
     mutationFn: ({ mint, action }: { mint: string; action: "like" | "dislike" }) =>
       swipe(wallet, mint, action),
@@ -107,6 +135,7 @@ export function SwipeView() {
             tokens={tokens}
             onSwipe={handleSwipe}
             onEmpty={() => hasNextPage && !isFetching && fetchNextPage()}
+            onActiveCard={refreshActiveCard}
           />
         )}
       </div>
