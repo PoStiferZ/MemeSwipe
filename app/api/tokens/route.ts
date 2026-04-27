@@ -41,9 +41,9 @@ async function refreshStaleBatch(rows: TokenRow[]): Promise<TokenRow[]> {
   await Promise.all(
     stale.map(async (row) => {
       const dex = dexMap.get(row.mint);
-      if (!dex || dex.priceUsd == null) return;
+      if (!dex) return;
       const next = await applyDexPatch(row, dex, now);
-      updated.set(row.mint, next);
+      if (next !== row) updated.set(row.mint, next);
     }),
   );
 
