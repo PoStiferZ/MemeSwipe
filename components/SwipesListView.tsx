@@ -1,9 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletButton } from "./WalletButton";
 import { BottomNav } from "./BottomNav";
+import { useEffectiveWallet } from "@/lib/client/wallet";
 import { formatPercent, formatUsd, formatRelative } from "@/lib/format";
 import type { ApiToken } from "@/lib/types";
 
@@ -41,8 +41,7 @@ const VARIANTS: Record<"liked" | "disliked", Variant> = {
 
 export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const v = VARIANTS[kind];
-  const wallet = useWallet();
-  const walletAddr = wallet.publicKey?.toBase58();
+  const { address: walletAddr } = useEffectiveWallet();
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -100,7 +99,7 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
       <div className="flex-1 px-4 py-4">
         {!walletAddr ? (
           <div className="mt-20 text-center text-white/50">
-            Connect your wallet to see your {v.verb} tokens.
+            Connect a wallet or enter an address (top right) to see your {v.verb} tokens.
           </div>
         ) : isLoading ? (
           <div className="mt-20 text-center text-white/50">Loading…</div>

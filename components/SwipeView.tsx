@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { SwipeDeck } from "./SwipeDeck";
 import { BottomNav } from "./BottomNav";
 import { swipe } from "@/lib/client/session";
+import { useEffectiveWallet } from "@/lib/client/wallet";
 import { DEFAULT_FILTERS, type ApiToken, type Filters } from "@/lib/types";
 
 type TokensPage = {
@@ -16,19 +16,15 @@ type TokensPage = {
 };
 
 export function SwipeView() {
-  const wallet = useWallet();
+  const { address: walletAddr } = useEffectiveWallet();
   const qc = useQueryClient();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [pendingNew, setPendingNew] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const queryKey = useMemo(
-    () => [
-      "tokens",
-      filters,
-      wallet.publicKey?.toBase58() ?? null,
-    ],
-    [filters, wallet.publicKey],
+    () => ["tokens", filters, walletAddr],
+    [filters, walletAddr],
   );
 
   const { data, fetchNextPage, hasNextPage, isFetching } = useInfiniteQuery({
@@ -36,7 +32,7 @@ export function SwipeView() {
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
-      params.set("limit", "30");
+      params.set("limit", "15");
       if (filters.minMcap > 0) params.set("minMcap", String(filters.minMcap));
       if (filters.minHolders > 0) params.set("minHolders", String(filters.minHolders));
       if (filters.sinceDays > 0) {
@@ -46,7 +42,7 @@ export function SwipeView() {
         );
       }
       if (pageParam) params.set("cursor", pageParam);
-      if (wallet.publicKey) params.set("excludeWallet", wallet.publicKey.toBase58());
+      if (walletAddr) params.set("excludeWallet", walletAddr);
       const res = await fetch(`/api/tokens?${params.toString()}`);
       if (!res.ok) throw new Error(`tokens ${res.status}`);
       return (await res.json()) as TokensPage;
@@ -86,20 +82,25 @@ export function SwipeView() {
   );
 
   const swipeMut = useMutation({
-    mutationFn: ({ mint, action }: { mint: string; action: "like" | "dislike" }) =>
-      swipe(wallet, mint, action),
+    mutationFn: ({ mint, action }: { mint: string; action: "like" | "dislike" }) => {
+      if (!walletAddr) throw new Error("No wallet");
+      return swipe(walletAddr, mint, action);
+    },
     onError: (err) => setToast((err as Error).message),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["swipes", walletAddr] });
+    },
   });
 
   const handleSwipe = useCallback(
     (token: ApiToken, action: "like" | "dislike") => {
-      if (!wallet.publicKey) {
-        setToast("Connect your wallet to save swipes");
+      if (!walletAddr) {
+        setToast("Connect a wallet or enter an address to save swipes");
         return;
       }
       swipeMut.mutate({ mint: token.mint, action });
     },
-    [wallet.publicKey, swipeMut],
+    [walletAddr, swipeMut],
   );
 
   const refreshMut = useMutation({
