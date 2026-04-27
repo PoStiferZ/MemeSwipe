@@ -19,7 +19,6 @@ export function SwipeView() {
   const { address: walletAddr } = useEffectiveWallet();
   const qc = useQueryClient();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
-  const [pendingNew, setPendingNew] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const queryKey = useMemo(
@@ -103,40 +102,18 @@ export function SwipeView() {
     [walletAddr, swipeMut],
   );
 
-  const refreshMut = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/refresh", { method: "POST" });
-      if (!res.ok) throw new Error(`refresh ${res.status}`);
-      return (await res.json()) as { newCount: number };
-    },
-    onSuccess: ({ newCount }) => {
-      setPendingNew(newCount);
-      setToast(
-        newCount > 0
-          ? `${newCount} new migration${newCount > 1 ? "s" : ""}`
-          : "No new migrations",
-      );
-      qc.invalidateQueries({ queryKey: ["tokens"] });
-    },
-    onError: (err) => setToast((err as Error).message),
-  });
-
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col">
       <FilterBar
         filters={filters}
         onChange={setFilters}
-        onRefresh={() => refreshMut.mutate()}
-        refreshing={refreshMut.isPending}
-        pendingCount={pendingNew}
         remaining={totalRemaining}
       />
 
       <div className="flex-1 px-4 pt-6">
         {tokens.length === 0 && !isFetching ? (
           <div className="mt-20 text-center text-white/50">
-            No tokens yet. Run <code>pnpm backfill</code> or hit{" "}
-            <strong>Refresh</strong>.
+            Plus de tokens pour le moment.
           </div>
         ) : (
           <SwipeDeck

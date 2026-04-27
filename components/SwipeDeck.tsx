@@ -38,7 +38,7 @@ export function SwipeDeck({
   if (!visible.length) {
     return (
       <div className="flex h-[60vh] items-center justify-center text-white/50">
-        No more tokens. Hit refresh to fetch the latest migrations.
+        Plus de tokens pour le moment.
       </div>
     );
   }

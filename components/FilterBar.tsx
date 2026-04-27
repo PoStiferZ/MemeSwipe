@@ -35,16 +35,10 @@ const DAYS_OPTIONS: { value: number; label: string }[] = [
 export function FilterBar({
   filters,
   onChange,
-  onRefresh,
-  refreshing,
-  pendingCount,
   remaining,
 }: {
   filters: Filters;
   onChange: (next: Filters) => void;
-  onRefresh: () => void;
-  refreshing: boolean;
-  pendingCount: number | null;
   remaining: number | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -55,32 +49,23 @@ export function FilterBar({
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur">
-      <div className="flex items-center gap-2 px-4 py-3">
-        <h1 className="text-lg font-bold tracking-tight">MemeSwipe</h1>
-        {remaining != null ? (
-          <span className="rounded-full bg-card px-2 py-0.5 text-[11px] text-white/70">
-            {formatInt(remaining)} left
-          </span>
-        ) : null}
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-extrabold tracking-tight">
+            M<span className="text-accent">Swip</span>
+          </h1>
+          {remaining != null ? (
+            <span className="rounded-full bg-card px-2 py-0.5 text-[11px] text-white/70">
+              {formatInt(remaining)}
+            </span>
+          ) : null}
+        </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={onRefresh}
-            disabled={refreshing}
-            className="relative flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-sm"
-            aria-label="Refresh"
-            title="Fetch new migrations"
-          >
-            <span className={refreshing ? "animate-spin" : ""}>↻</span>
-            {pendingCount != null && pendingCount > 0 ? (
-              <span className="absolute -right-1 -top-1 rounded-full bg-accent px-1 text-[9px] font-bold text-black">
-                +{pendingCount}
-              </span>
-            ) : null}
-          </button>
+          <WalletButton compact />
           <button
             onClick={() => setOpen((o) => !o)}
-            className={`relative flex h-8 items-center gap-1 rounded-full border px-3 text-xs ${
+            className={`relative flex h-9 items-center gap-1 rounded-full border px-3 text-xs ${
               activeFilters > 0
                 ? "border-accent bg-accent/10 text-accent"
                 : "border-line bg-card"
@@ -94,7 +79,6 @@ export function FilterBar({
               </span>
             ) : null}
           </button>
-          <WalletButton />
         </div>
       </div>
 

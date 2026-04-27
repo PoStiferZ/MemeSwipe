@@ -12,7 +12,7 @@ function shorten(addr: string) {
   return addr.slice(0, 4) + "…" + addr.slice(-4);
 }
 
-export function WalletButton() {
+export function WalletButton({ compact = false }: { compact?: boolean }) {
   const real = useWallet();
   const { setVisible } = useWalletModal();
   const { address, isReal, manual, setManual, clearManual } =
@@ -53,22 +53,41 @@ export function WalletButton() {
   return (
     <div className="relative" ref={popRef}>
       {address ? (
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs"
-        >
-          <span
-            className={`h-2 w-2 rounded-full ${
-              isReal ? "bg-like" : "bg-accent"
-            }`}
+        compact ? (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card"
+            aria-label="Wallet"
             title={isReal ? "Connected wallet" : "Manual address"}
-          />
-          {shorten(address)}
-        </button>
+          >
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                isReal ? "bg-like" : "bg-accent"
+              }`}
+            />
+          </button>
+        ) : (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs"
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                isReal ? "bg-like" : "bg-accent"
+              }`}
+              title={isReal ? "Connected wallet" : "Manual address"}
+            />
+            {shorten(address)}
+          </button>
+        )
       ) : (
         <button
           onClick={() => setOpen((o) => !o)}
-          className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-black"
+          className={
+            compact
+              ? "h-9 rounded-full bg-accent px-3 text-xs font-semibold text-black"
+              : "rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-black"
+          }
         >
           Connect
         </button>
