@@ -19,7 +19,6 @@ const SOCIAL_ICONS: Record<string, string> = {
 export function TokenCard({ token }: { token: ApiToken }) {
   const created = token.createdAt ? new Date(token.createdAt).getTime() : null;
   const migrated = new Date(token.migratedAt).getTime();
-  const change2h = token.change2h ? Number(token.change2h) : null;
   const change6h = token.change6h ? Number(token.change6h) : null;
   const change24h = token.change24h ? Number(token.change24h) : null;
 
@@ -55,13 +54,8 @@ export function TokenCard({ token }: { token: ApiToken }) {
 
       <div className="grid grid-cols-3 gap-2 p-4 text-center text-xs">
         <Stat label="MCAP" value={formatUsd(token.mcapUsd)} />
-        <Stat label="ATH" value={formatUsd(token.athUsd)} />
+        <Stat label="ATH MCAP" value={formatUsd(token.athMcapUsd)} />
         <Stat label="Holders" value={formatInt(token.holdersCount)} />
-        <Stat
-          label="2h"
-          value={formatPercent(change2h)}
-          tone={tone(change2h)}
-        />
         <Stat
           label="6h"
           value={formatPercent(change6h)}

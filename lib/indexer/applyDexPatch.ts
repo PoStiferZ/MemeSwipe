@@ -37,7 +37,10 @@ export async function applyDexPatch(
 
   const oldAth = Number(row.athUsd ?? 0);
   const newAth = Math.max(oldAth, dex.priceUsd);
-  const athAt = newAth > oldAth ? now : row.athAt;
+  const oldAthMcap = Number(row.athMcapUsd ?? 0);
+  const dexMcap = dex.mcapUsd ?? 0;
+  const newAthMcap = Math.max(oldAthMcap, dexMcap);
+  const athAt = newAth > oldAth || newAthMcap > oldAthMcap ? now : row.athAt;
 
   const patch = {
     ticker,
@@ -53,6 +56,7 @@ export async function applyDexPatch(
     change6h: dex.change6h != null ? String(dex.change6h) : null,
     change24h: dex.change24h != null ? String(dex.change24h) : null,
     athUsd: String(newAth),
+    athMcapUsd: newAthMcap > 0 ? String(newAthMcap) : null,
     athAt,
     lastSnapshotAt: now,
   };

@@ -53,6 +53,7 @@ export const tokens = pgTable(
     change24h: numeric("change_24h", { precision: 10, scale: 4 }),
 
     athUsd: numeric("ath_usd", { precision: 30, scale: 12 }),
+    athMcapUsd: numeric("ath_mcap_usd", { precision: 20, scale: 2 }),
     athAt: timestamp("ath_at", { withTimezone: true }),
 
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true })

@@ -25,6 +25,7 @@ export type ApiToken = {
   change6h: string | null;
   change24h: string | null;
   athUsd: string | null;
+  athMcapUsd: string | null;
   athAt: string | null;
   lastIndexedAt: string;
   lastSnapshotAt: string | null;
