@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { SwipeDeck } from "./SwipeDeck";
-import { authedSwipe } from "@/lib/client/session";
+import { swipe } from "@/lib/client/session";
 import { DEFAULT_FILTERS, type ApiToken, type Filters } from "@/lib/types";
 
 type TokensPage = { tokens: ApiToken[]; nextCursor: string | null };
@@ -53,7 +53,7 @@ export function SwipeView() {
 
   const swipeMut = useMutation({
     mutationFn: ({ mint, action }: { mint: string; action: "like" | "dislike" }) =>
-      authedSwipe(wallet, mint, action),
+      swipe(wallet, mint, action),
     onError: (err) => setToast((err as Error).message),
   });
 

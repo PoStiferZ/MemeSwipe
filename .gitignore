@@ -11,3 +11,4 @@ dist
 coverage
 .drizzle
 tsconfig.tsbuildinfo
+.claude/
