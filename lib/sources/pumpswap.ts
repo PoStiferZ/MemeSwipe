@@ -80,21 +80,39 @@ export function detectMigration(
   return null;
 }
 
+type WebhookIx = ParsedInstruction & {
+  innerInstructions?: ParsedInstruction[];
+};
+
 /**
- * Helius webhook payloads ship parsed Solana transactions. Reuse the same
- * detection logic by adapting the shape.
+ * Helius webhook payloads ship parsed Solana transactions. The Enhanced
+ * webhook format nests inner instructions inside each outer instruction
+ * (not at top-level like the RPC format), so walk both shapes.
  */
 export function detectFromWebhookEvent(
-  event: { signature?: string; slot?: number; timestamp?: number; instructions?: ParsedInstruction[]; innerInstructions?: { instructions: ParsedInstruction[] }[] },
+  event: {
+    signature?: string;
+    slot?: number;
+    timestamp?: number;
+    instructions?: WebhookIx[];
+    innerInstructions?: { instructions: ParsedInstruction[] }[];
+  },
 ): DetectedMigration | null {
   if (!event.signature) return null;
   const blockTime = event.timestamp
     ? new Date(event.timestamp * 1000)
     : new Date();
 
+  const outer = event.instructions ?? [];
+  const innerNested = outer.flatMap((ix) => ix.innerInstructions ?? []);
+  const innerTopLevel = (event.innerInstructions ?? []).flatMap(
+    (g) => g.instructions,
+  );
+
   const allInstructions: ParsedInstruction[] = [
-    ...(event.instructions ?? []),
-    ...(event.innerInstructions ?? []).flatMap((g) => g.instructions),
+    ...outer,
+    ...innerNested,
+    ...innerTopLevel,
   ];
 
   for (const ix of allInstructions) {

@@ -40,8 +40,17 @@ export async function POST(req: NextRequest) {
       "[webhook] first event programs (outer):",
       sample.instructions?.map((i) => i.programId) ?? [],
     );
+    const innerNested = (sample.instructions ?? []).flatMap(
+      (ix) =>
+        (ix as unknown as { innerInstructions?: { programId: string }[] })
+          .innerInstructions ?? [],
+    );
     console.log(
-      "[webhook] first event programs (inner):",
+      "[webhook] first event programs (inner-nested):",
+      innerNested.map((i) => i.programId),
+    );
+    console.log(
+      "[webhook] first event programs (inner-toplevel):",
       (sample.innerInstructions ?? []).flatMap((g) =>
         g.instructions.map((i) => i.programId),
       ),
