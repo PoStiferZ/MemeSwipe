@@ -57,12 +57,12 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const removeMut = useMutation({
     mutationFn: async (mint: string) => {
       if (!walletAddr) throw new Error("wallet not connected");
-      const res = await fetch("/api/swipes", {
+      const params = new URLSearchParams({ wallet: walletAddr, mint });
+      const res = await fetch(`/api/swipes?${params.toString()}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallet: walletAddr, mint }),
       });
       if (!res.ok) throw new Error(`delete ${res.status}`);
+      return (await res.json()) as { ok: boolean; deleted: number };
     },
     onMutate: async (mint) => {
       await qc.cancelQueries({ queryKey: ["swipes", walletAddr] });
@@ -145,13 +145,23 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
                   chart →
                 </a>
                 <button
-                  onClick={() => removeMut.mutate(row.mint)}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeMut.mutate(row.mint);
+                  }}
                   disabled={removeMut.isPending}
-                  className="ml-2 flex h-7 w-7 items-center justify-center rounded-full text-white/40 hover:bg-white/5 hover:text-white/80 disabled:opacity-40"
-                  aria-label="Remove"
-                  title="Remove"
+                  className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/40 hover:bg-dislike/15 hover:text-dislike active:scale-90 disabled:opacity-40"
+                  aria-label="Remove from list"
+                  title="Remove (returns the token to swipe)"
                 >
-                  ×
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1.5 14a2 2 0 0 1-2 1.8H8.5a2 2 0 0 1-2-1.8L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                  </svg>
                 </button>
               </li>
             ))}

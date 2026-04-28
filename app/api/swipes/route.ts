@@ -35,24 +35,28 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-const DeleteBody = z.object({
+const DeleteQuery = z.object({
   wallet: z.string().min(32).max(44),
   mint: z.string().min(32).max(44),
 });
 
 export async function DELETE(req: NextRequest) {
-  const json = await req.json().catch(() => null);
-  const parsed = DeleteBody.safeParse(json);
+  const url = new URL(req.url);
+  const parsed = DeleteQuery.safeParse({
+    wallet: url.searchParams.get("wallet"),
+    mint: url.searchParams.get("mint"),
+  });
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.format() }, { status: 400 });
   }
   const { wallet, mint } = parsed.data;
-  await db
+  const result = await db
     .delete(schema.swipes)
     .where(
       and(eq(schema.swipes.wallet, wallet), eq(schema.swipes.mint, mint)),
-    );
-  return NextResponse.json({ ok: true });
+    )
+    .returning({ mint: schema.swipes.mint });
+  return NextResponse.json({ ok: true, deleted: result.length });
 }
 
 export async function GET(req: NextRequest) {

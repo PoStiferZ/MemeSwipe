@@ -85,6 +85,28 @@ export function SwipeView() {
       if (!walletAddr) throw new Error("No wallet");
       return swipe(walletAddr, mint, action);
     },
+    onMutate: ({ mint }) => {
+      // Optimistically: drop the swiped token from every cached page and
+      // decrement the counter on the first page so the header updates
+      // immediately, without waiting for a refetch.
+      qc.setQueryData<{ pages: TokensPage[]; pageParams: unknown[] }>(
+        queryKey,
+        (prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pages: prev.pages.map((p, idx) => ({
+              ...p,
+              tokens: p.tokens.filter((t) => t.mint !== mint),
+              totalRemaining:
+                idx === 0 && p.totalRemaining != null
+                  ? Math.max(0, p.totalRemaining - 1)
+                  : p.totalRemaining,
+            })),
+          };
+        },
+      );
+    },
     onError: (err) => setToast((err as Error).message),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["swipes", walletAddr] });
