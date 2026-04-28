@@ -40,5 +40,5 @@ export type Filters = {
 export const DEFAULT_FILTERS: Filters = {
   minMcap: 0,
   minHolders: 0,
-  sinceDays: 1,
+  sinceDays: 0,
 };
