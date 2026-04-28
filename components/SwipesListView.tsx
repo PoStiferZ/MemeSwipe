@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { WalletButton } from "./WalletButton";
 import { BottomNav } from "./BottomNav";
@@ -43,6 +44,8 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const v = VARIANTS[kind];
   const { address: walletAddr } = useEffectiveWallet();
   const qc = useQueryClient();
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data, isLoading } = useQuery({
     queryKey: ["swipes", walletAddr],
@@ -84,90 +87,204 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
     },
   });
 
-  const rows =
-    data?.swipes.filter((s) => s.action === v.action && s.token) ?? [];
+  const bulkDeleteMut = useMutation({
+    mutationFn: async (mints: string[]) => {
+      const res = await fetch("/api/tokens/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mints }),
+      });
+      if (!res.ok) throw new Error(`bulk delete ${res.status}`);
+      return (await res.json()) as { ok: boolean; deleted: number };
+    },
+    onSuccess: () => {
+      setSelected(new Set());
+      setSelecting(false);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["swipes", walletAddr] });
+      qc.invalidateQueries({ queryKey: ["tokens"] });
+    },
+  });
+
+  const allSwipes = data?.swipes ?? [];
+  const likeCount = allSwipes.filter((s) => s.action === "like").length;
+  const dislikeCount = allSwipes.filter((s) => s.action === "dislike").length;
+  const rows = allSwipes.filter((s) => s.action === v.action && s.token);
+
+  const toggleSelect = (mint: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(mint)) next.delete(mint);
+      else next.add(mint);
+      return next;
+    });
+  };
+
+  const cancelSelection = () => {
+    setSelecting(false);
+    setSelected(new Set());
+  };
+
+  const supportsBulkDelete = kind === "disliked";
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col">
-      <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
-        <h1 className="text-lg font-bold tracking-tight">{v.title}</h1>
-        <div className="ml-auto">
-          <WalletButton />
+      <header className="sticky top-0 z-30 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-bold tracking-tight">{v.title}</h1>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span className="rounded-full bg-like/15 px-2 py-0.5 text-like">
+              ♥ {likeCount}
+            </span>
+            <span className="rounded-full bg-dislike/15 px-2 py-0.5 text-dislike">
+              ✕ {dislikeCount}
+            </span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {supportsBulkDelete && rows.length > 0 ? (
+              selecting ? (
+                <button
+                  onClick={cancelSelection}
+                  className="rounded-full border border-line bg-card px-3 py-1.5 text-xs"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  onClick={() => setSelecting(true)}
+                  className="rounded-full border border-line bg-card px-3 py-1.5 text-xs"
+                >
+                  Select
+                </button>
+              )
+            ) : null}
+            <WalletButton compact />
+          </div>
         </div>
       </header>
 
       <div className="flex-1 px-4 py-4">
         {!walletAddr ? (
           <div className="mt-20 text-center text-white/50">
-            Connect a wallet or enter an address (top right) to see your {v.verb} tokens.
+            Connect a wallet or enter an address (top right) to see your{" "}
+            {v.verb} tokens.
           </div>
         ) : isLoading ? (
           <div className="mt-20 text-center text-white/50">Loading…</div>
         ) : rows.length === 0 ? (
           <div className="mt-20 text-center text-white/50">{v.emptyText}</div>
         ) : (
-          <ul className="space-y-2">
-            {rows.map((row) => (
-              <li
-                key={row.mint}
-                className="flex items-center gap-3 rounded-2xl border border-line bg-card p-3"
-              >
-                {row.token!.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={row.token!.imageUrl}
-                    alt={row.token!.ticker ?? row.mint}
-                    className="h-12 w-12 rounded-lg object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="h-12 w-12 rounded-lg bg-black/40" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold">
-                    ${row.token!.ticker ?? "?"}{" "}
-                    <span className="text-xs font-normal text-white/50">
-                      {row.token!.name}
-                    </span>
-                  </div>
-                  <div className="text-xs text-white/60">
-                    {formatUsd(row.token!.mcapUsd)} mcap ·{" "}
-                    {formatPercent(row.token!.change24h)} 24h · {v.verb}{" "}
-                    {formatRelative(row.createdAt)}
-                  </div>
-                </div>
-                <a
-                  href={`https://dexscreener.com/solana/${row.mint}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-accent"
+          <ul className={`space-y-2 ${selecting ? "pb-24" : ""}`}>
+            {rows.map((row) => {
+              const isSelected = selected.has(row.mint);
+              const onRowClick = () => {
+                if (selecting) toggleSelect(row.mint);
+              };
+              return (
+                <li
+                  key={row.mint}
+                  onClick={onRowClick}
+                  className={`flex items-center gap-3 rounded-2xl border p-3 transition ${
+                    isSelected
+                      ? "border-dislike bg-dislike/10"
+                      : "border-line bg-card"
+                  } ${selecting ? "cursor-pointer" : ""}`}
                 >
-                  chart →
-                </a>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    removeMut.mutate(row.mint);
-                  }}
-                  disabled={removeMut.isPending}
-                  className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/40 hover:bg-dislike/15 hover:text-dislike active:scale-90 disabled:opacity-40"
-                  aria-label="Remove from list"
-                  title="Remove (returns the token to swipe)"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6l-1.5 14a2 2 0 0 1-2 1.8H8.5a2 2 0 0 1-2-1.8L5 6" />
-                    <path d="M10 11v6M14 11v6" />
-                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                  </svg>
-                </button>
-              </li>
-            ))}
+                  {selecting ? (
+                    <div
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${
+                        isSelected
+                          ? "border-dislike bg-dislike text-bg"
+                          : "border-line"
+                      }`}
+                    >
+                      {isSelected ? (
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {row.token!.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={row.token!.imageUrl}
+                      alt={row.token!.ticker ?? row.mint}
+                      className="h-12 w-12 rounded-lg object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-lg bg-black/40" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">
+                      ${row.token!.ticker ?? "?"}{" "}
+                      <span className="text-xs font-normal text-white/50">
+                        {row.token!.name}
+                      </span>
+                    </div>
+                    <div className="text-xs text-white/60">
+                      {formatUsd(row.token!.mcapUsd)} mcap ·{" "}
+                      {formatPercent(row.token!.change24h)} 24h · {v.verb}{" "}
+                      {formatRelative(row.createdAt)}
+                    </div>
+                  </div>
+                  {selecting ? null : (
+                    <>
+                      <a
+                        href={`https://dexscreener.com/solana/${row.mint}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs text-accent"
+                      >
+                        chart →
+                      </a>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          removeMut.mutate(row.mint);
+                        }}
+                        disabled={removeMut.isPending}
+                        className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/40 hover:bg-dislike/15 hover:text-dislike active:scale-90 disabled:opacity-40"
+                        aria-label="Remove from list"
+                        title="Remove (returns the token to swipe)"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1.5 14a2 2 0 0 1-2 1.8H8.5a2 2 0 0 1-2-1.8L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+
+      {selecting && selected.size > 0 ? (
+        <div className="sticky bottom-[58px] z-20 border-t border-dislike/30 bg-bg/95 px-4 py-3 backdrop-blur">
+          <button
+            onClick={() => bulkDeleteMut.mutate(Array.from(selected))}
+            disabled={bulkDeleteMut.isPending}
+            className="w-full rounded-2xl bg-dislike py-3 text-sm font-semibold text-white active:scale-[0.98] disabled:opacity-50"
+          >
+            {bulkDeleteMut.isPending
+              ? "Deleting…"
+              : `Delete ${selected.size} token${selected.size > 1 ? "s" : ""} permanently`}
+          </button>
+          <p className="mt-1.5 text-center text-[10px] text-white/40">
+            Removed from the database — won't appear in swipe deck again.
+          </p>
+        </div>
+      ) : null}
 
       <BottomNav active={v.navKey} />
     </div>
