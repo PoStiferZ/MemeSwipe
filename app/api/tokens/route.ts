@@ -61,8 +61,10 @@ export async function GET(req: NextRequest) {
   const q = parsed.data;
 
   const conditions = [
-    // Always exclude low-quality tokens from the swipe deck.
-    sql`${schema.tokens.volume24h} >= ${MIN_VOLUME_24H}`,
+    // Hide tokens whose 24h volume is *known* to be below the floor.
+    // NULL means "not measured yet" (just migrated, DexScreener hasn't indexed
+    // yet) — we keep those so they get a chance once they're refreshed.
+    sql`(${schema.tokens.volume24h} IS NULL OR ${schema.tokens.volume24h} >= ${MIN_VOLUME_24H})`,
   ];
 
   // Numeric columns are stored as DECIMAL — use sql templates so the params
