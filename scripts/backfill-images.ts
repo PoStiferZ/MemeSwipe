@@ -6,7 +6,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
-import { getAsset, pickAssetImage } from "@/lib/sources/helius";
+import { fetchTokenMetadata } from "@/lib/sources/helius";
 
 const THROTTLE_MS = Number(process.env.HELIUS_THROTTLE_MS ?? 1200);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -23,17 +23,23 @@ async function main() {
   for (let i = 0; i < rows.length; i++) {
     const { mint, ticker } = rows[i];
     try {
-      const asset = await getAsset(mint);
-      const image = pickAssetImage(asset);
-      if (image) {
+      const meta = await fetchTokenMetadata(mint);
+      if (meta.imageUrl) {
         await db
           .update(schema.tokens)
-          .set({ imageUrl: image })
+          .set({
+            imageUrl: meta.imageUrl,
+            ticker: sql`coalesce(${schema.tokens.ticker}, ${meta.symbol ?? null})`,
+            name: sql`coalesce(${schema.tokens.name}, ${meta.name ?? null})`,
+            description: sql`coalesce(${schema.tokens.description}, ${meta.description ?? null})`,
+          })
           .where(sql`${schema.tokens.mint} = ${mint}`);
         fixed++;
-        console.log(`  ✓ ${ticker ?? mint.slice(0, 6)} → ${image.slice(0, 80)}`);
+        console.log(
+          `  ✓ ${ticker ?? mint.slice(0, 6)} → ${meta.imageUrl.slice(0, 80)}`,
+        );
       } else {
-        console.log(`  · ${ticker ?? mint.slice(0, 6)} no image in DAS`);
+        console.log(`  · ${ticker ?? mint.slice(0, 6)} no image found`);
       }
     } catch (err) {
       console.error(

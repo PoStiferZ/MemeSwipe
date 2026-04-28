@@ -162,6 +162,84 @@ export function pickAssetImage(asset: DasAsset | null): string | null {
   );
 }
 
+/**
+ * Wrap a raw image URL with the Helius CDN (CF Image proxy) so it loads
+ * fast & reliably even when the source is a slow IPFS gateway.
+ */
+function viaHeliusCdn(url: string | null): string | null {
+  if (!url) return null;
+  if (url.includes("cdn.helius-rpc.com")) return url;
+  return `https://cdn.helius-rpc.com/cdn-cgi/image//${url}`;
+}
+
+export type TokenMetadata = {
+  imageUrl: string | null;
+  name: string | null;
+  symbol: string | null;
+  description: string | null;
+  socials: {
+    twitter?: string;
+    telegram?: string;
+    website?: string;
+    discord?: string;
+  };
+};
+
+/**
+ * Best-effort fetch of token metadata using all available paths:
+ *
+ *   1. Helius DAS (returns Metaplex on-chain metadata + DAS-cached image URI)
+ *   2. If DAS gave a json_uri but no image, fetch the off-chain JSON and
+ *      extract the image directly (Metaplex spec: `image` field)
+ *   3. Wrap any raw IPFS URL behind the Helius CDN for reliability
+ *
+ * Returns whatever was found, with `imageUrl: null` if everything failed.
+ */
+export async function fetchTokenMetadata(mint: string): Promise<TokenMetadata> {
+  const asset = await getAsset(mint).catch(() => null);
+
+  let imageUrl = pickAssetImage(asset);
+  let name = asset?.content?.metadata?.name ?? null;
+  let symbol = asset?.content?.metadata?.symbol ?? null;
+  let description = asset?.content?.metadata?.description ?? null;
+  const socials: TokenMetadata["socials"] = {};
+
+  // Fall back to fetching the off-chain Metaplex JSON ourselves.
+  // DAS sometimes lists json_uri but doesn't surface the image link.
+  const jsonUri = asset?.content?.json_uri;
+  if ((!imageUrl || !name || !symbol) && jsonUri) {
+    try {
+      const res = await fetch(jsonUri, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as Record<string, unknown>;
+        if (!imageUrl && typeof json.image === "string") imageUrl = json.image;
+        if (!imageUrl && typeof json.image_url === "string")
+          imageUrl = json.image_url;
+        if (!name && typeof json.name === "string") name = json.name;
+        if (!symbol && typeof json.symbol === "string") symbol = json.symbol;
+        if (!description && typeof json.description === "string")
+          description = json.description;
+        if (typeof json.twitter === "string") socials.twitter = json.twitter;
+        if (typeof json.telegram === "string") socials.telegram = json.telegram;
+        if (typeof json.website === "string") socials.website = json.website;
+      }
+    } catch {
+      // network/timeout — fall through with whatever we have
+    }
+  }
+
+  return {
+    imageUrl: viaHeliusCdn(imageUrl),
+    name,
+    symbol,
+    description,
+    socials,
+  };
+}
+
 export async function getAsset(mint: string): Promise<DasAsset | null> {
   // Helius DAS methods take a single object param (not the JSON-RPC array shape).
   return rpc<DasAsset | null>("getAsset", { id: mint });

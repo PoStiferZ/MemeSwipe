@@ -1,10 +1,9 @@
 import { db, schema } from "@/lib/db/client";
 import { fetchEnriched } from "@/lib/sources/dexscreener";
 import {
-  getAsset,
+  fetchTokenMetadata,
   getHoldersCount,
   getMintCreationTime,
-  pickAssetImage,
 } from "@/lib/sources/helius";
 import type { DetectedMigration } from "@/lib/sources/pumpswap";
 import { sql } from "drizzle-orm";
@@ -18,23 +17,19 @@ export type EnrichedTokenRow = typeof schema.tokens.$inferInsert;
 export async function buildTokenRow(
   m: DetectedMigration,
 ): Promise<EnrichedTokenRow> {
-  const [dex, asset] = await Promise.all([
+  const [dex, meta] = await Promise.all([
     fetchEnriched(m.mint).catch(() => null),
-    getAsset(m.mint).catch(() => null),
+    fetchTokenMetadata(m.mint).catch(() => null),
   ]);
 
-  const meta = asset?.content?.metadata;
-  const ticker =
-    meta?.symbol ??
-    asset?.token_info?.symbol ??
-    dex?.pair?.baseToken.symbol ??
-    null;
+  const ticker = meta?.symbol ?? dex?.pair?.baseToken.symbol ?? null;
   const name = meta?.name ?? dex?.pair?.baseToken.name ?? null;
   const description = meta?.description ?? null;
-  const imageUrl =
-    pickAssetImage(asset ?? null) ?? // prefers Helius CDN
-    dex?.imageUrl ??
-    null;
+  const imageUrl = meta?.imageUrl ?? dex?.imageUrl ?? null;
+  const mergedSocials = {
+    ...(dex?.socials ?? {}),
+    ...(meta?.socials ?? {}),
+  };
 
   return {
     mint: m.mint,
@@ -46,7 +41,7 @@ export async function buildTokenRow(
     migratedAt: m.blockTime,
     migrationSignature: m.signature,
     poolAddress: m.poolAddress,
-    socials: dex?.socials ?? {},
+    socials: mergedSocials,
     priceUsd: dex?.priceUsd != null ? String(dex.priceUsd) : null,
     mcapUsd: dex?.mcapUsd != null ? String(dex.mcapUsd) : null,
     fdvUsd: dex?.fdvUsd != null ? String(dex.fdvUsd) : null,
@@ -117,4 +112,40 @@ export async function backfillSlowFields(mint: string) {
       holdersUpdatedAt: holders != null ? new Date() : undefined,
     })
     .where(sql`${schema.tokens.mint} = ${mint}`);
+}
+
+/**
+ * Fire-and-forget retry loop for the metadata image. Helius DAS can lag the
+ * actual on-chain Metaplex metadata by a few seconds for fresh migrations,
+ * so we re-poll a few times before giving up.
+ */
+export async function retryImageInBackground(mint: string) {
+  const delays = [3_000, 8_000, 15_000];
+  for (const wait of delays) {
+    await new Promise((r) => setTimeout(r, wait));
+    try {
+      const [row] = await db
+        .select({ imageUrl: schema.tokens.imageUrl })
+        .from(schema.tokens)
+        .where(sql`${schema.tokens.mint} = ${mint}`)
+        .limit(1);
+      if (row?.imageUrl) return; // somebody else (refresh) already filled it
+
+      const meta = await fetchTokenMetadata(mint);
+      if (meta.imageUrl) {
+        await db
+          .update(schema.tokens)
+          .set({
+            imageUrl: meta.imageUrl,
+            ticker: sql`coalesce(${schema.tokens.ticker}, ${meta.symbol ?? null})`,
+            name: sql`coalesce(${schema.tokens.name}, ${meta.name ?? null})`,
+            description: sql`coalesce(${schema.tokens.description}, ${meta.description ?? null})`,
+          })
+          .where(sql`${schema.tokens.mint} = ${mint}`);
+        return;
+      }
+    } catch {
+      // ignore, try next backoff
+    }
+  }
 }

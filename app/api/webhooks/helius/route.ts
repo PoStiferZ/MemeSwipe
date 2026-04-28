@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { detectFromWebhookEvent } from "@/lib/sources/pumpswap";
-import { backfillSlowFields, buildTokenRow, upsertToken } from "@/lib/indexer/enrichToken";
+import {
+  backfillSlowFields,
+  buildTokenRow,
+  retryImageInBackground,
+  upsertToken,
+} from "@/lib/indexer/enrichToken";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -73,6 +78,10 @@ export async function POST(req: NextRequest) {
       const row = await buildTokenRow(m);
       await upsertToken(row);
       void backfillSlowFields(m.mint).catch(() => undefined);
+      if (!row.imageUrl) {
+        console.log("[webhook] image missing → background retry:", m.mint);
+        void retryImageInBackground(m.mint).catch(() => undefined);
+      }
       console.log("[webhook] upserted token:", m.mint);
     } catch (err) {
       console.error("[webhook] enrich failed", m.mint, err);
