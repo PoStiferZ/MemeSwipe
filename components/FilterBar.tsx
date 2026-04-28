@@ -5,7 +5,7 @@ import type { Filters } from "@/lib/types";
 import { WalletButton } from "./WalletButton";
 import { formatInt } from "@/lib/format";
 
-const MCAP_OPTIONS: { value: number; label: string }[] = [
+const MIN_MCAP_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: "Any" },
   { value: 10_000, label: "$10k" },
   { value: 50_000, label: "$50k" },
@@ -13,6 +13,15 @@ const MCAP_OPTIONS: { value: number; label: string }[] = [
   { value: 250_000, label: "$250k" },
   { value: 500_000, label: "$500k" },
   { value: 1_000_000, label: "$1M" },
+];
+const MAX_MCAP_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "Any" },
+  { value: 50_000, label: "$50k" },
+  { value: 100_000, label: "$100k" },
+  { value: 250_000, label: "$250k" },
+  { value: 500_000, label: "$500k" },
+  { value: 1_000_000, label: "$1M" },
+  { value: 5_000_000, label: "$5M" },
 ];
 const HOLDERS_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: "Any" },
@@ -44,6 +53,7 @@ export function FilterBar({
   const [open, setOpen] = useState(false);
   const activeFilters =
     (filters.minMcap > 0 ? 1 : 0) +
+    (filters.maxMcap > 0 ? 1 : 0) +
     (filters.minHolders > 0 ? 1 : 0) +
     (filters.sinceDays > 0 ? 1 : 0);
 
@@ -87,8 +97,30 @@ export function FilterBar({
           <PillRow
             label="Min market cap"
             value={filters.minMcap}
-            options={MCAP_OPTIONS}
-            onChange={(v) => onChange({ ...filters, minMcap: v })}
+            options={MIN_MCAP_OPTIONS}
+            onChange={(v) =>
+              onChange({
+                ...filters,
+                minMcap: v,
+                // If max is now lower than the new min, clear it.
+                maxMcap:
+                  filters.maxMcap > 0 && filters.maxMcap < v ? 0 : filters.maxMcap,
+              })
+            }
+          />
+          <PillRow
+            label="Max market cap"
+            value={filters.maxMcap}
+            options={MAX_MCAP_OPTIONS}
+            onChange={(v) =>
+              onChange({
+                ...filters,
+                maxMcap: v,
+                // If min is higher than the new max, clear it.
+                minMcap:
+                  v > 0 && filters.minMcap > v ? 0 : filters.minMcap,
+              })
+            }
           />
           <PillRow
             label="Min holders"
@@ -105,7 +137,12 @@ export function FilterBar({
           {activeFilters > 0 ? (
             <button
               onClick={() =>
-                onChange({ minMcap: 0, minHolders: 0, sinceDays: 0 })
+                onChange({
+                  minMcap: 0,
+                  maxMcap: 0,
+                  minHolders: 0,
+                  sinceDays: 0,
+                })
               }
               className="w-full rounded-full border border-line bg-card py-2 text-xs text-white/70"
             >

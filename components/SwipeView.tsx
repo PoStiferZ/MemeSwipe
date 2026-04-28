@@ -33,6 +33,7 @@ export function SwipeView() {
       const params = new URLSearchParams();
       params.set("limit", "30");
       if (filters.minMcap > 0) params.set("minMcap", String(filters.minMcap));
+      if (filters.maxMcap > 0) params.set("maxMcap", String(filters.maxMcap));
       if (filters.minHolders > 0) params.set("minHolders", String(filters.minHolders));
       if (filters.sinceDays > 0) {
         params.set(

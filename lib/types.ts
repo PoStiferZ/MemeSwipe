@@ -33,12 +33,14 @@ export type ApiToken = {
 
 export type Filters = {
   minMcap: number;
+  maxMcap: number; // 0 = no upper bound
   minHolders: number;
   sinceDays: number;
 };
 
 export const DEFAULT_FILTERS: Filters = {
   minMcap: 0,
+  maxMcap: 0,
   minHolders: 0,
   sinceDays: 0,
 };
