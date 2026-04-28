@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, gte, lt, sql } from "drizzle-orm";
+import { and, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db/client";
 import { fetchManyEnriched } from "@/lib/sources/dexscreener";
@@ -9,6 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const STALE_MS = 30_000;
+// Hard quality bar — anything below this 24h volume is hidden from the swipe deck.
+const MIN_VOLUME_24H = 10_000;
 
 const QuerySchema = z.object({
   minMcap: z.coerce.number().nonnegative().optional(),
@@ -17,7 +19,7 @@ const QuerySchema = z.object({
   since: z.coerce.number().int().optional(),
   until: z.coerce.number().int().optional(),
   cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(15),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
   excludeWallet: z.string().optional(),
 });
 
@@ -58,18 +60,29 @@ export async function GET(req: NextRequest) {
   }
   const q = parsed.data;
 
-  const conditions = [];
+  const conditions = [
+    // Always exclude low-quality tokens from the swipe deck.
+    sql`${schema.tokens.volume24h} >= ${MIN_VOLUME_24H}`,
+  ];
+
+  // Numeric columns are stored as DECIMAL — use sql templates so the params
+  // bind as numerics, not as text (which would alphabetically compare).
   if (q.minMcap != null)
-    conditions.push(gte(schema.tokens.mcapUsd, String(q.minMcap)));
+    conditions.push(sql`${schema.tokens.mcapUsd} >= ${q.minMcap}`);
   if (q.maxMcap != null)
-    conditions.push(sql`${schema.tokens.mcapUsd} <= ${String(q.maxMcap)}`);
+    conditions.push(sql`${schema.tokens.mcapUsd} <= ${q.maxMcap}`);
   if (q.minHolders != null)
-    conditions.push(gte(schema.tokens.holdersCount, q.minHolders));
+    conditions.push(sql`${schema.tokens.holdersCount} >= ${q.minHolders}`);
   if (q.since != null)
-    conditions.push(gte(schema.tokens.migratedAt, new Date(q.since * 1000)));
+    conditions.push(
+      sql`${schema.tokens.migratedAt} >= ${new Date(q.since * 1000)}`,
+    );
   if (q.until != null)
-    conditions.push(sql`${schema.tokens.migratedAt} <= ${new Date(q.until * 1000)}`);
-  if (q.cursor) conditions.push(lt(schema.tokens.migratedAt, new Date(q.cursor)));
+    conditions.push(
+      sql`${schema.tokens.migratedAt} <= ${new Date(q.until * 1000)}`,
+    );
+  if (q.cursor)
+    conditions.push(sql`${schema.tokens.migratedAt} < ${new Date(q.cursor)}`);
 
   if (q.excludeWallet) {
     conditions.push(
@@ -77,17 +90,19 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const where = and(...conditions);
+
   const rows = await db
     .select()
     .from(schema.tokens)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(where)
     .orderBy(desc(schema.tokens.migratedAt))
     .limit(q.limit);
 
   const [{ count: totalRemaining = 0 } = { count: 0 }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.tokens)
-    .where(conditions.length ? and(...conditions) : undefined);
+    .where(where);
 
   const refreshed = await refreshStaleBatch(rows);
 

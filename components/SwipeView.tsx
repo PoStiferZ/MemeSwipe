@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { SwipeDeck } from "./SwipeDeck";
@@ -31,7 +31,7 @@ export function SwipeView() {
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
-      params.set("limit", "15");
+      params.set("limit", "30");
       if (filters.minMcap > 0) params.set("minMcap", String(filters.minMcap));
       if (filters.minHolders > 0) params.set("minHolders", String(filters.minHolders));
       if (filters.sinceDays > 0) {
@@ -51,6 +51,15 @@ export function SwipeView() {
 
   const tokens = data?.pages.flatMap((p) => p.tokens) ?? [];
   const totalRemaining = data?.pages[0]?.totalRemaining ?? null;
+
+  // Auto-prefetch the next page as soon as the deck gets low — this keeps
+  // swiping continuous instead of stalling out on "Plus de tokens" while a
+  // fresh page loads.
+  useEffect(() => {
+    if (tokens.length < 8 && hasNextPage && !isFetching) {
+      fetchNextPage();
+    }
+  }, [tokens.length, hasNextPage, isFetching, fetchNextPage]);
 
   const refreshActiveCard = useCallback(
     async (mint: string) => {
@@ -133,16 +142,22 @@ export function SwipeView() {
       />
 
       <div className="flex-1 px-4 pt-6">
-        {tokens.length === 0 && !isFetching ? (
+        {tokens.length === 0 && !hasNextPage && !isFetching ? (
           <div className="mt-20 text-center text-white/50">
             Plus de tokens pour le moment.
+          </div>
+        ) : tokens.length === 0 && isFetching ? (
+          <div className="mt-20 flex flex-col items-center gap-3 text-white/50">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
+            Loading…
           </div>
         ) : (
           <SwipeDeck
             tokens={tokens}
             onSwipe={handleSwipe}
-            onEmpty={() => hasNextPage && !isFetching && fetchNextPage()}
             onActiveCard={refreshActiveCard}
+            isLoadingMore={isFetching}
+            hasMore={Boolean(hasNextPage)}
           />
         )}
       </div>

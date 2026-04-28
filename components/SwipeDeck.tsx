@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useMotionValue, useTransform } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { TokenCard } from "./TokenCard";
 import type { ApiToken } from "@/lib/types";
 
@@ -10,32 +10,37 @@ const SWIPE_THRESHOLD = 120;
 export function SwipeDeck({
   tokens,
   onSwipe,
-  onEmpty,
   onActiveCard,
+  isLoadingMore = false,
+  hasMore = false,
 }: {
   tokens: ApiToken[];
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
-  onEmpty?: () => void;
   onActiveCard?: (mint: string) => void;
+  isLoadingMore?: boolean;
+  hasMore?: boolean;
 }) {
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
-  const visible = tokens.filter((t) => !removed.has(t.mint)).slice(0, 3);
+  // SwipeView removes the swiped token from the cache (optimistic update),
+  // so we don't need to track it here too — the prop `tokens` shrinks naturally.
+  const visible = tokens.slice(0, 3);
 
   useEffect(() => {
     if (visible[0] && onActiveCard) onActiveCard(visible[0].mint);
   }, [visible[0]?.mint, onActiveCard]);
 
   function commit(token: ApiToken, action: "like" | "dislike") {
-    setRemoved((prev) => {
-      const next = new Set(prev);
-      next.add(token.mint);
-      if (next.size === tokens.length) onEmpty?.();
-      return next;
-    });
     onSwipe(token, action);
   }
 
   if (!visible.length) {
+    if (isLoadingMore || hasMore) {
+      return (
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-3 text-white/50">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
+          Loading more…
+        </div>
+      );
+    }
     return (
       <div className="flex h-[60vh] items-center justify-center text-white/50">
         Plus de tokens pour le moment.
