@@ -1,6 +1,11 @@
 import { db, schema } from "@/lib/db/client";
 import { fetchEnriched } from "@/lib/sources/dexscreener";
-import { getAsset, getHoldersCount, getMintCreationTime } from "@/lib/sources/helius";
+import {
+  getAsset,
+  getHoldersCount,
+  getMintCreationTime,
+  pickAssetImage,
+} from "@/lib/sources/helius";
 import type { DetectedMigration } from "@/lib/sources/pumpswap";
 import { sql } from "drizzle-orm";
 
@@ -27,8 +32,7 @@ export async function buildTokenRow(
   const name = meta?.name ?? dex?.pair?.baseToken.name ?? null;
   const description = meta?.description ?? null;
   const imageUrl =
-    asset?.content?.links?.image ??
-    asset?.content?.files?.find((f) => f.type?.startsWith("image"))?.uri ??
+    pickAssetImage(asset ?? null) ?? // prefers Helius CDN
     dex?.imageUrl ??
     null;
 

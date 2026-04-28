@@ -127,7 +127,7 @@ export type DasAsset = {
       description?: string;
     };
     links?: { image?: string };
-    files?: { uri?: string; type?: string }[];
+    files?: { uri?: string; cdn_uri?: string; mime?: string; type?: string }[];
   };
   token_info?: {
     symbol?: string;
@@ -135,6 +135,29 @@ export type DasAsset = {
     supply?: number;
   };
 };
+
+/**
+ * Pick the most reliable image URL from a DAS asset:
+ * 1. Helius CDN-cached image (fast, CORS-friendly, never broken)
+ * 2. DAS metadata "links.image"
+ * 3. First image file's URI
+ */
+export function pickAssetImage(asset: DasAsset | null): string | null {
+  if (!asset?.content) return null;
+  const files = asset.content.files ?? [];
+  const imageFile = files.find(
+    (f) =>
+      (f.mime ?? f.type ?? "").startsWith("image") ||
+      Boolean(f.cdn_uri) ||
+      Boolean(f.uri),
+  );
+  return (
+    imageFile?.cdn_uri ??
+    asset.content.links?.image ??
+    imageFile?.uri ??
+    null
+  );
+}
 
 export async function getAsset(mint: string): Promise<DasAsset | null> {
   return rpc<DasAsset | null>("getAsset", [{ id: mint }]);
