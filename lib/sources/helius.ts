@@ -14,7 +14,10 @@ export const PUMPSWAP_PROGRAM_ID = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function rpc<T>(method: string, params: unknown[]): Promise<T> {
+async function rpc<T>(
+  method: string,
+  params: unknown[] | Record<string, unknown>,
+): Promise<T> {
   let attempt = 0;
   while (true) {
     const res = await fetch(rpcUrl(), {
@@ -160,7 +163,8 @@ export function pickAssetImage(asset: DasAsset | null): string | null {
 }
 
 export async function getAsset(mint: string): Promise<DasAsset | null> {
-  return rpc<DasAsset | null>("getAsset", [{ id: mint }]);
+  // Helius DAS methods take a single object param (not the JSON-RPC array shape).
+  return rpc<DasAsset | null>("getAsset", { id: mint });
 }
 
 export async function getHoldersCount(mint: string): Promise<number> {
@@ -172,14 +176,12 @@ export async function getHoldersCount(mint: string): Promise<number> {
       limit: number;
       cursor?: string;
       token_accounts: { address: string; amount: number }[];
-    }>("getTokenAccounts", [
-      {
-        mint,
-        limit: 1000,
-        cursor,
-        options: { showZeroBalance: false },
-      },
-    ]);
+    }>("getTokenAccounts", {
+      mint,
+      limit: 1000,
+      cursor,
+      options: { showZeroBalance: false },
+    });
     total += page.token_accounts.filter((a) => a.amount > 0).length;
     cursor = page.cursor;
     if (!cursor || page.token_accounts.length < 1000) break;
