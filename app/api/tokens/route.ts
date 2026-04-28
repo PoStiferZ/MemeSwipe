@@ -108,13 +108,35 @@ export async function GET(req: NextRequest) {
 
   const refreshed = await refreshStaleBatch(rows);
 
+  // The refresh can mutate price/mcap/volume to fresh values that no longer
+  // match the user's filter (e.g. the DB had mcap=15k passing min=10k, then
+  // DexScreener returned 1.5k). Re-apply numeric filters here so the client
+  // never sees a row that violates the active filter.
+  const num = (v: string | null) => (v == null ? null : Number(v));
+  const filtered = refreshed.filter((r) => {
+    const mcap = num(r.mcapUsd);
+    const vol = num(r.volume24h);
+    if (vol != null && vol < MIN_VOLUME_24H) return false;
+    if (q.minMcap != null && (mcap == null || mcap < q.minMcap)) return false;
+    if (q.maxMcap != null && mcap != null && mcap > q.maxMcap) return false;
+    if (
+      q.minHolders != null &&
+      (r.holdersCount == null || r.holdersCount < q.minHolders)
+    )
+      return false;
+    return true;
+  });
+
+  // Cursor still derives from the (post-DB-filter, pre-numeric-recheck) row
+  // slice so we don't accidentally end pagination too early just because the
+  // refresh dropped a few items from the page.
   const nextCursor =
     refreshed.length === q.limit
       ? refreshed[refreshed.length - 1].migratedAt?.toISOString()
       : null;
 
   return NextResponse.json({
-    tokens: refreshed,
+    tokens: filtered,
     nextCursor,
     totalRemaining,
   });
