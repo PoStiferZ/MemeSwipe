@@ -55,6 +55,7 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortKey>("recent");
+  const [search, setSearch] = useState("");
 
   const { data, isLoading, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["swipes", walletAddr],
@@ -123,9 +124,15 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const likeCount = allSwipes.filter((s) => s.action === "like").length;
   const dislikeCount = allSwipes.filter((s) => s.action === "dislike").length;
   const rows = useMemo(() => {
-    const filtered = allSwipes.filter(
-      (s) => s.action === v.action && s.token,
-    );
+    const q = search.trim().toLowerCase();
+    const filtered = allSwipes.filter((s) => {
+      if (s.action !== v.action || !s.token) return false;
+      if (!q) return true;
+      const ticker = s.token.ticker?.toLowerCase() ?? "";
+      const name = s.token.name?.toLowerCase() ?? "";
+      const mint = s.mint.toLowerCase();
+      return ticker.includes(q) || name.includes(q) || mint.includes(q);
+    });
     const num = (val: string | null | undefined) =>
       val == null ? -Infinity : Number(val);
     const sorted = [...filtered];
@@ -145,7 +152,7 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
     return sorted;
-  }, [allSwipes, v.action, sort]);
+  }, [allSwipes, v.action, sort, search]);
 
   const toggleSelect = (mint: string) => {
     setSelected((prev) => {
@@ -202,6 +209,34 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
           </div>
         </div>
 
+        {kind === "disliked" ? (
+          <div className="relative mt-2">
+            <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search ticker, name, or CA…"
+              spellCheck={false}
+              autoComplete="off"
+              className="w-full rounded-full border border-line bg-card py-2 pl-9 pr-9 text-sm outline-none placeholder:text-white/40 focus:border-accent"
+            />
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-white/50 hover:bg-white/10 hover:text-white"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         {kind === "liked" && rows.length > 0 ? (
           <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
             <span className="shrink-0 text-[10px] uppercase tracking-wide text-white/40">
@@ -245,7 +280,9 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
         ) : isLoading ? (
           <div className="mt-20 text-center text-white/50">Loading…</div>
         ) : rows.length === 0 ? (
-          <div className="mt-20 text-center text-white/50">{v.emptyText}</div>
+          <div className="mt-20 text-center text-white/50">
+            {search.trim() ? `No match for "${search.trim()}"` : v.emptyText}
+          </div>
         ) : (
           <ul className={`space-y-2 ${selecting ? "pb-24" : ""}`}>
             {rows.map((row) => {
