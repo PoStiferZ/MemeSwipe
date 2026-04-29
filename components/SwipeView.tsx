@@ -9,6 +9,34 @@ import { swipe } from "@/lib/client/session";
 import { useEffectiveWallet } from "@/lib/client/wallet";
 import { DEFAULT_FILTERS, type ApiToken, type Filters } from "@/lib/types";
 
+const FILTERS_KEY = "memeswipe.filters";
+
+function loadFilters(): Filters {
+  if (typeof window === "undefined") return DEFAULT_FILTERS;
+  try {
+    const raw = window.localStorage.getItem(FILTERS_KEY);
+    if (!raw) return DEFAULT_FILTERS;
+    const parsed = JSON.parse(raw) as Partial<Filters>;
+    return {
+      minMcap: typeof parsed.minMcap === "number" ? parsed.minMcap : 0,
+      maxMcap: typeof parsed.maxMcap === "number" ? parsed.maxMcap : 0,
+      minHolders:
+        typeof parsed.minHolders === "number" ? parsed.minHolders : 0,
+      sinceDays: typeof parsed.sinceDays === "number" ? parsed.sinceDays : 0,
+    };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
+}
+
+function saveFilters(f: Filters) {
+  try {
+    window.localStorage.setItem(FILTERS_KEY, JSON.stringify(f));
+  } catch {
+    // quota / private mode — ignore
+  }
+}
+
 type TokensPage = {
   tokens: ApiToken[];
   nextCursor: string | null;
@@ -18,8 +46,13 @@ type TokensPage = {
 export function SwipeView() {
   const { address: walletAddr } = useEffectiveWallet();
   const qc = useQueryClient();
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [filters, setFiltersState] = useState<Filters>(loadFilters);
   const [toast, setToast] = useState<string | null>(null);
+
+  const setFilters = useCallback((next: Filters) => {
+    setFiltersState(next);
+    saveFilters(next);
+  }, []);
 
   const queryKey = useMemo(
     () => ["tokens", filters, walletAddr],
