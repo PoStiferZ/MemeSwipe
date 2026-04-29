@@ -251,17 +251,33 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
             {rows.map((row) => {
               const isSelected = selected.has(row.mint);
               const onRowClick = () => {
-                if (selecting) toggleSelect(row.mint);
+                if (selecting) {
+                  toggleSelect(row.mint);
+                } else {
+                  window.open(
+                    `https://dexscreener.com/solana/${row.mint}`,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }
               };
               return (
                 <li
                   key={row.mint}
                   onClick={onRowClick}
-                  className={`flex items-center gap-3 rounded-2xl border p-3 transition ${
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onRowClick();
+                    }
+                  }}
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3 transition active:scale-[0.99] ${
                     isSelected
                       ? "border-dislike bg-dislike/10"
-                      : "border-line bg-card"
-                  } ${selecting ? "cursor-pointer" : ""}`}
+                      : "border-line bg-card hover:border-white/20"
+                  }`}
                 >
                   {selecting ? (
                     <div
@@ -290,54 +306,43 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
                     <div className="h-12 w-12 rounded-lg bg-black/40" />
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-semibold">
-                        ${row.token!.ticker ?? "?"}{" "}
-                        <span className="text-xs font-normal text-white/50">
-                          {row.token!.name}
-                        </span>
+                    <div className="truncate font-semibold">
+                      ${row.token!.ticker ?? "?"}{" "}
+                      <span className="text-xs font-normal text-white/50">
+                        {row.token!.name}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-white/60">
-                      <span>{formatUsd(row.token!.mcapUsd)}</span>
-                      <ChangeBadge label="1h" value={row.token!.change2h} />
-                      <ChangeBadge label="24h" value={row.token!.change24h} />
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <PillBadge tone="neutral">
+                        {formatUsd(row.token!.mcapUsd)}
+                      </PillBadge>
+                      <ChangePill label="1h" value={row.token!.change2h} />
+                      <ChangePill label="24h" value={row.token!.change24h} />
                     </div>
-                    <div className="mt-0.5 text-[10px] text-white/40">
+                    <div className="mt-1 text-[10px] text-white/40">
                       {v.verb} {formatRelative(row.createdAt)}
                     </div>
                   </div>
                   {selecting ? null : (
-                    <>
-                      <a
-                        href={`https://dexscreener.com/solana/${row.mint}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-accent"
-                      >
-                        chart →
-                      </a>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          removeMut.mutate(row.mint);
-                        }}
-                        disabled={removeMut.isPending}
-                        className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/40 hover:bg-dislike/15 hover:text-dislike active:scale-90 disabled:opacity-40"
-                        aria-label="Remove from list"
-                        title="Remove (returns the token to swipe)"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1.5 14a2 2 0 0 1-2 1.8H8.5a2 2 0 0 1-2-1.8L5 6" />
-                          <path d="M10 11v6M14 11v6" />
-                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                        </svg>
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        removeMut.mutate(row.mint);
+                      }}
+                      disabled={removeMut.isPending}
+                      className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-white/40 hover:bg-dislike/15 hover:text-dislike active:scale-90 disabled:opacity-40"
+                      aria-label="Remove from list"
+                      title="Remove (returns the token to swipe)"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1.5 14a2 2 0 0 1-2 1.8H8.5a2 2 0 0 1-2-1.8L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                      </svg>
+                    </button>
                   )}
                 </li>
               );
@@ -368,7 +373,29 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   );
 }
 
-function ChangeBadge({
+function PillBadge({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "up" | "down";
+}) {
+  const cls =
+    tone === "up"
+      ? "bg-like/15 text-like"
+      : tone === "down"
+        ? "bg-dislike/15 text-dislike"
+        : "bg-black/40 text-white/80";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ChangePill({
   label,
   value,
 }: {
@@ -376,11 +403,12 @@ function ChangeBadge({
   value: string | null;
 }) {
   const n = value == null ? null : Number(value);
-  const tone =
-    n == null ? "text-white/40" : n > 0 ? "text-like" : n < 0 ? "text-dislike" : "text-white/60";
+  const tone: "up" | "down" | "neutral" =
+    n == null || n === 0 ? "neutral" : n > 0 ? "up" : "down";
   return (
-    <span className={`tabular-nums ${tone}`}>
-      {label} {formatPercent(n)}
-    </span>
+    <PillBadge tone={tone}>
+      <span className="opacity-60 mr-0.5">{label}</span>
+      {formatPercent(n)}
+    </PillBadge>
   );
 }
