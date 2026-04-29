@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
+import { fetchManyEnriched } from "@/lib/sources/dexscreener";
+import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 
 export const runtime = "nodejs";
+
+// Liked tokens are the user's "watchlist" — refresh on read so prices stay
+// live without a background cron. 20s cache is short enough for monitoring
+// but avoids hammering DexScreener on quick page revisits.
+const LIKED_STALE_MS = 20_000;
 
 const Body = z.object({
   wallet: z.string().min(32).max(44),
@@ -73,6 +80,33 @@ export async function GET(req: NextRequest) {
     .from(schema.swipes)
     .leftJoin(schema.tokens, eq(schema.swipes.mint, schema.tokens.mint))
     .where(eq(schema.swipes.wallet, wallet));
+
+  // Refresh liked tokens (the user's watchlist) so prices/changes stay live.
+  // Skip dislikes — those are noise and not worth the bandwidth.
+  const now = new Date();
+  const likesNeedingRefresh = rows.filter(
+    (r) =>
+      r.action === "like" &&
+      r.token &&
+      now.getTime() - (r.token.lastSnapshotAt?.getTime() ?? 0) >= LIKED_STALE_MS,
+  );
+  if (likesNeedingRefresh.length > 0) {
+    try {
+      const dex = await fetchManyEnriched(
+        likesNeedingRefresh.map((r) => r.mint),
+      );
+      await Promise.all(
+        likesNeedingRefresh.map(async (r) => {
+          const d = dex.get(r.mint);
+          if (!d || !r.token) return;
+          const updated = await applyDexPatch(r.token, d, now);
+          if (updated !== r.token) r.token = updated;
+        }),
+      );
+    } catch {
+      // soft-fail — return stale rather than empty
+    }
+  }
 
   return NextResponse.json({ swipes: rows });
 }

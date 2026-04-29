@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { WalletButton } from "./WalletButton";
 import { BottomNav } from "./BottomNav";
 import { useEffectiveWallet } from "@/lib/client/wallet";
 import { formatPercent, formatUsd, formatRelative } from "@/lib/format";
 import type { ApiToken } from "@/lib/types";
+
+type SortKey = "recent" | "change1h" | "change24h" | "mcap";
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "recent", label: "Recent" },
+  { value: "change1h", label: "1h%" },
+  { value: "change24h", label: "24h%" },
+  { value: "mcap", label: "MCAP" },
+];
 
 type SwipeRow = {
   mint: string;
@@ -46,8 +54,9 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const qc = useQueryClient();
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<SortKey>("recent");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["swipes", walletAddr],
     enabled: Boolean(walletAddr),
     queryFn: async () => {
@@ -55,6 +64,9 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
       if (!res.ok) throw new Error(`swipes ${res.status}`);
       return (await res.json()) as { swipes: SwipeRow[] };
     },
+    // Liked tokens are a watchlist — keep them live.
+    refetchInterval: kind === "liked" ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const removeMut = useMutation({
@@ -110,7 +122,30 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const allSwipes = data?.swipes ?? [];
   const likeCount = allSwipes.filter((s) => s.action === "like").length;
   const dislikeCount = allSwipes.filter((s) => s.action === "dislike").length;
-  const rows = allSwipes.filter((s) => s.action === v.action && s.token);
+  const rows = useMemo(() => {
+    const filtered = allSwipes.filter(
+      (s) => s.action === v.action && s.token,
+    );
+    const num = (val: string | null | undefined) =>
+      val == null ? -Infinity : Number(val);
+    const sorted = [...filtered];
+    if (sort === "change1h")
+      sorted.sort(
+        (a, b) => num(b.token!.change2h) - num(a.token!.change2h),
+      );
+    else if (sort === "change24h")
+      sorted.sort(
+        (a, b) => num(b.token!.change24h) - num(a.token!.change24h),
+      );
+    else if (sort === "mcap")
+      sorted.sort((a, b) => num(b.token!.mcapUsd) - num(a.token!.mcapUsd));
+    else
+      sorted.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    return sorted;
+  }, [allSwipes, v.action, sort]);
 
   const toggleSelect = (mint: string) => {
     setSelected((prev) => {
@@ -127,6 +162,10 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   };
 
   const supportsBulkDelete = kind === "disliked";
+
+  const lastUpdated = dataUpdatedAt
+    ? Math.round((Date.now() - dataUpdatedAt) / 1000)
+    : null;
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col">
@@ -162,6 +201,39 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
             <WalletButton compact />
           </div>
         </div>
+
+        {kind === "liked" && rows.length > 0 ? (
+          <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
+            <span className="shrink-0 text-[10px] uppercase tracking-wide text-white/40">
+              Sort
+            </span>
+            {SORT_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => setSort(o.value)}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${
+                  sort === o.value
+                    ? "bg-accent font-semibold text-black"
+                    : "border border-line bg-card text-white/70"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+            <div className="ml-auto shrink-0 text-[10px] text-white/40">
+              {isFetching ? (
+                <span className="flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                  live
+                </span>
+              ) : lastUpdated != null ? (
+                <span>
+                  {lastUpdated < 60 ? `${lastUpdated}s` : `${Math.round(lastUpdated / 60)}m`} ago
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </header>
 
       <div className="flex-1 px-4 py-4">
@@ -218,16 +290,21 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
                     <div className="h-12 w-12 rounded-lg bg-black/40" />
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold">
-                      ${row.token!.ticker ?? "?"}{" "}
-                      <span className="text-xs font-normal text-white/50">
-                        {row.token!.name}
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-semibold">
+                        ${row.token!.ticker ?? "?"}{" "}
+                        <span className="text-xs font-normal text-white/50">
+                          {row.token!.name}
+                        </span>
                       </span>
                     </div>
-                    <div className="text-xs text-white/60">
-                      {formatUsd(row.token!.mcapUsd)} mcap ·{" "}
-                      {formatPercent(row.token!.change24h)} 24h · {v.verb}{" "}
-                      {formatRelative(row.createdAt)}
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-white/60">
+                      <span>{formatUsd(row.token!.mcapUsd)}</span>
+                      <ChangeBadge label="1h" value={row.token!.change2h} />
+                      <ChangeBadge label="24h" value={row.token!.change24h} />
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-white/40">
+                      {v.verb} {formatRelative(row.createdAt)}
                     </div>
                   </div>
                   {selecting ? null : (
@@ -288,5 +365,22 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
 
       <BottomNav active={v.navKey} />
     </div>
+  );
+}
+
+function ChangeBadge({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  const n = value == null ? null : Number(value);
+  const tone =
+    n == null ? "text-white/40" : n > 0 ? "text-like" : n < 0 ? "text-dislike" : "text-white/60";
+  return (
+    <span className={`tabular-nums ${tone}`}>
+      {label} {formatPercent(n)}
+    </span>
   );
 }
