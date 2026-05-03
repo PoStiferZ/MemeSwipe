@@ -173,13 +173,28 @@ export function pickAssetImage(asset: DasAsset | null): string | null {
 }
 
 /**
- * Wrap a raw image URL with the Helius CDN (CF Image proxy) so it loads
- * fast & reliably even when the source is a slow IPFS gateway.
+ * Marker for URLs we never want in `image_url`: the Helius CDN proxy
+ * (which 403s on most ipfs.io sources). The refresh button uses this to
+ * detect stale rows that need re-resolving from metadata.
  */
-function viaHeliusCdn(url: string | null): string | null {
+export const BAD_IMAGE_PREFIX = "https://cdn.helius-rpc.com/cdn-cgi/image/";
+
+export function isCanonicalImageUrl(url: string | null): boolean {
+  if (!url) return false;
+  return !url.startsWith(BAD_IMAGE_PREFIX);
+}
+
+/**
+ * Strip the Helius CDN wrapper if present, otherwise return as-is.
+ * `ipfs://CID` → `https://ipfs.io/ipfs/CID` so browsers can load it.
+ */
+export function normalizeImageUrl(url: string | null): string | null {
   if (!url) return null;
-  if (url.includes("cdn.helius-rpc.com")) return url;
-  return `https://cdn.helius-rpc.com/cdn-cgi/image//${url}`;
+  const wrapped = url.match(/^https:\/\/cdn\.helius-rpc\.com\/cdn-cgi\/image\/[^/]*\/+(.+)$/);
+  if (wrapped) url = wrapped[1];
+  const ipfsScheme = url.match(/^ipfs:\/\/(.+)$/i);
+  if (ipfsScheme) return `https://ipfs.io/ipfs/${ipfsScheme[1]}`;
+  return url;
 }
 
 export type TokenMetadata = {
@@ -215,7 +230,7 @@ export async function fetchTokenMetadata(
   if (!uri) {
     // No URI at all — only thing we can return is what DAS surfaced directly.
     return {
-      imageUrl: viaHeliusCdn(pickAssetImage(asset)),
+      imageUrl: normalizeImageUrl(pickAssetImage(asset)),
       name:
         asset?.content?.metadata?.name ??
         asset?.mint_extensions?.metadata?.name ??
@@ -233,7 +248,7 @@ export async function fetchTokenMetadata(
   const json = await fetchMetadataJson(uri);
   return {
     imageUrl:
-      json?.imageUrl ?? viaHeliusCdn(pickAssetImage(asset)),
+      json?.imageUrl ?? normalizeImageUrl(pickAssetImage(asset)),
     name:
       json?.name ??
       asset?.content?.metadata?.name ??
@@ -271,7 +286,7 @@ export async function fetchTokenMetadataBatch(
     const json = uri ? await fetchMetadataJson(uri) : null;
     out.set(mint, {
       imageUrl:
-        json?.imageUrl ?? viaHeliusCdn(pickAssetImage(asset)),
+        json?.imageUrl ?? normalizeImageUrl(pickAssetImage(asset)),
       name:
         json?.name ??
         asset?.content?.metadata?.name ??
@@ -340,7 +355,7 @@ export async function fetchMetadataJson(
       (typeof json.image === "string" ? json.image : null) ??
       (typeof json.image_url === "string" ? json.image_url : null);
     return {
-      imageUrl: viaHeliusCdn(imageUrl),
+      imageUrl: normalizeImageUrl(imageUrl),
       name: typeof json.name === "string" ? json.name : null,
       symbol: typeof json.symbol === "string" ? json.symbol : null,
       description:

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ApiToken } from "@/lib/types";
 import { formatPercent, formatRelative, formatUsd } from "@/lib/format";
+import { isCanonicalImageUrl } from "@/lib/sources/helius";
 
 type Props = {
   tokens: ApiToken[];
@@ -12,7 +13,7 @@ type Props = {
   onPageChange: (page: number) => void;
   isFetching: boolean;
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
-  onRefreshOne: (mint: string) => Promise<void> | void;
+  onRefreshBulk: (visible: ApiToken[]) => Promise<void>;
   sortDir: "desc" | "asc";
   onSortChange: (dir: "desc" | "asc") => void;
 };
@@ -25,14 +26,16 @@ export function SwipeList({
   onPageChange,
   isFetching,
   onSwipe,
-  onRefreshOne,
+  onRefreshBulk,
   sortDir,
   onSortChange,
 }: Props) {
   const [refreshing, setRefreshing] = useState(false);
 
+  // Counts rows whose `image_url` isn't in the canonical raw form — exactly
+  // the rows the refresh button will re-resolve.
   const missingImages = useMemo(
-    () => tokens.filter((t) => !t.imageUrl).length,
+    () => tokens.filter((t) => !isCanonicalImageUrl(t.imageUrl)).length,
     [tokens],
   );
 
@@ -43,20 +46,11 @@ export function SwipeList({
   const refreshImages = async () => {
     if (refreshing || tokens.length === 0) return;
     setRefreshing(true);
-    const queue = tokens.map((t) => t.mint);
-    const workers = Array.from({ length: 4 }, async () => {
-      while (queue.length > 0) {
-        const mint = queue.shift();
-        if (!mint) return;
-        try {
-          await onRefreshOne(mint);
-        } catch {
-          // ignore
-        }
-      }
-    });
-    await Promise.all(workers);
-    setRefreshing(false);
+    try {
+      await onRefreshBulk(tokens);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   if (tokens.length === 0 && !isFetching) {
@@ -271,11 +265,12 @@ function Row({
         <img
           src={token.imageUrl}
           alt={token.ticker ?? token.mint}
-          className="h-12 w-12 rounded-lg object-cover"
+          className="h-12 w-12 shrink-0 rounded-lg object-cover"
           referrerPolicy="no-referrer"
+          loading="lazy"
         />
       ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-black/40 text-[10px] text-white/30">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-black/40 text-[10px] text-white/30">
           ?
         </div>
       )}

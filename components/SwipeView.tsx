@@ -169,44 +169,72 @@ export function SwipeView() {
     }
   }, [viewMode, tokens.length, hasNextPage, isFetching, fetchNextPage]);
 
+  const patchTokens = useCallback(
+    (updates: ApiToken[]) => {
+      if (updates.length === 0) return;
+      const byMint = new Map(updates.map((t) => [t.mint, t]));
+      qc.setQueryData<{ pages: TokensPage[]; pageParams: unknown[] }>(
+        queryKey,
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                pages: prev.pages.map((p) => ({
+                  ...p,
+                  tokens: p.tokens.map((t) => byMint.get(t.mint) ?? t),
+                })),
+              }
+            : prev,
+      );
+      qc.setQueryData<TokensPage>(listKey, (prev) =>
+        prev
+          ? {
+              ...prev,
+              tokens: prev.tokens.map((t) => byMint.get(t.mint) ?? t),
+            }
+          : prev,
+      );
+    },
+    [qc, queryKey, listKey],
+  );
+
   const refreshActiveCard = useCallback(
     async (mint: string) => {
       try {
         const res = await fetch(`/api/tokens/${mint}`);
         if (!res.ok) return;
         const { token } = (await res.json()) as { token: ApiToken };
-        // Patch deck infinite query
-        qc.setQueryData<{ pages: TokensPage[]; pageParams: unknown[] }>(
-          queryKey,
-          (prev) =>
-            prev
-              ? {
-                  ...prev,
-                  pages: prev.pages.map((p) => ({
-                    ...p,
-                    tokens: p.tokens.map((t) =>
-                      t.mint === mint ? token : t,
-                    ),
-                  })),
-                }
-              : prev,
-        );
-        // Patch list paginated query
-        qc.setQueryData<TokensPage>(listKey, (prev) =>
-          prev
-            ? {
-                ...prev,
-                tokens: prev.tokens.map((t) =>
-                  t.mint === mint ? token : t,
-                ),
-              }
-            : prev,
-        );
+        patchTokens([token]);
       } catch {
         // silent
       }
     },
-    [qc, queryKey, listKey],
+    [patchTokens],
+  );
+
+  // Refresh: server inspects each `image_url` and only re-resolves the rows
+  // whose URL isn't in the canonical raw form (i.e. is null or still wrapped
+  // by the old Helius CDN code). Canonical rows are skipped, so the call is
+  // cheap on a page that's already healthy.
+  const refreshImagesBulk = useCallback(
+    async (visible: ApiToken[]) => {
+      if (visible.length === 0) return;
+      try {
+        const res = await fetch("/api/tokens/refresh-images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mints: visible.map((t) => t.mint) }),
+        });
+        if (!res.ok) return;
+        const { tokens: updated } = (await res.json()) as {
+          tokens: ApiToken[];
+        };
+        patchTokens(updated);
+      } catch {
+        // silent
+      }
+    },
+    [patchTokens],
   );
 
   const swipeMut = useMutation({
@@ -310,7 +338,7 @@ export function SwipeView() {
             onPageChange={setListPage}
             isFetching={isListFetching}
             onSwipe={handleSwipe}
-            onRefreshOne={refreshActiveCard}
+            onRefreshBulk={refreshImagesBulk}
             sortDir={sortDir}
             onSortChange={switchSort}
           />

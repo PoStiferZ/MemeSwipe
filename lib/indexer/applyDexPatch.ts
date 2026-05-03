@@ -23,7 +23,6 @@ export async function applyDexPatch(
       : dex.socials ?? row.socials;
 
   if (dex.priceUsd == null) {
-    // No price yet, but maybe metadata changed — only persist if it changed.
     if (ticker === row.ticker && name === row.name && imageUrl === row.imageUrl) {
       return row;
     }

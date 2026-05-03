@@ -2,18 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { fetchEnriched } from "@/lib/sources/dexscreener";
-import { fetchMetadataJson, fetchTokenMetadata } from "@/lib/sources/helius";
+import {
+  fetchMetadataJson,
+  getAsset,
+  isCanonicalImageUrl,
+  normalizeImageUrl,
+  pickMetadataUri,
+} from "@/lib/sources/helius";
 import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Per-token refresh — called by the swipe deck when a card becomes active
- * so the user always sees current price/mcap/volume right before deciding.
- *
- * If the image is still missing after DexScreener, fall back to Helius DAS
- * (which gives us the CDN-cached URL — much more reliable than IPFS).
+ * Per-token refresh:
+ *  - DexScreener for price/mcap/volume (always).
+ *  - If `image_url` isn't in canonical format (i.e. it's null or wrapped by
+ *    the old Helius CDN code), re-resolve from the metadata JSON and save.
+ *    The URI itself is fetched from Helius DAS only when missing.
  */
 export async function GET(
   _req: NextRequest,
@@ -36,37 +42,29 @@ export async function GET(
     // keep row as-is
   }
 
-  // Image refresh: prefer the saved metadata_uri (just refetch JSON, free,
-  // no Helius credit) and fall back to DAS only when we don't have it yet.
-  try {
-    let meta = null;
-    if (refreshed.metadataUri) {
-      meta = await fetchMetadataJson(refreshed.metadataUri);
-    }
-    if (!meta || (!meta.imageUrl && !refreshed.imageUrl)) {
-      const full = await fetchTokenMetadata(mint);
-      meta = full;
-      if (full.metadataUri && full.metadataUri !== refreshed.metadataUri) {
-        await db
-          .update(schema.tokens)
-          .set({ metadataUri: full.metadataUri })
-          .where(sql`${schema.tokens.mint} = ${mint}`);
-        refreshed = { ...refreshed, metadataUri: full.metadataUri };
+  if (!isCanonicalImageUrl(refreshed.imageUrl)) {
+    try {
+      let uri = refreshed.metadataUri;
+      if (!uri) {
+        const asset = await getAsset(mint);
+        uri = pickMetadataUri(asset);
       }
+      if (uri) {
+        const meta = await fetchMetadataJson(uri);
+        const nextUrl = normalizeImageUrl(meta?.imageUrl ?? null);
+        if (nextUrl || uri !== refreshed.metadataUri) {
+          const patch: Partial<typeof refreshed> = { metadataUri: uri };
+          if (nextUrl) patch.imageUrl = nextUrl;
+          await db
+            .update(schema.tokens)
+            .set(patch)
+            .where(sql`${schema.tokens.mint} = ${mint}`);
+          refreshed = { ...refreshed, ...patch };
+        }
+      }
+    } catch {
+      // silent
     }
-    const patch: Partial<typeof refreshed> = {};
-    if (meta?.imageUrl) patch.imageUrl = meta.imageUrl;
-    if (!refreshed.ticker && meta?.symbol) patch.ticker = meta.symbol;
-    if (!refreshed.name && meta?.name) patch.name = meta.name;
-    if (Object.keys(patch).length > 0) {
-      await db
-        .update(schema.tokens)
-        .set(patch)
-        .where(sql`${schema.tokens.mint} = ${mint}`);
-      refreshed = { ...refreshed, ...patch };
-    }
-  } catch {
-    // silent
   }
 
   return NextResponse.json({ token: refreshed });

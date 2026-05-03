@@ -4,6 +4,7 @@ export type ApiToken = {
   name: string | null;
   description: string | null;
   imageUrl: string | null;
+  metadataUri: string | null;
   createdAt: string | null;
   migratedAt: string;
   migrationSignature: string | null;

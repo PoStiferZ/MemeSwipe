@@ -25,7 +25,6 @@ export async function buildTokenRow(
   const ticker = meta?.symbol ?? dex?.pair?.baseToken.symbol ?? null;
   const name = meta?.name ?? dex?.pair?.baseToken.name ?? null;
   const description = meta?.description ?? null;
-  const imageUrl = meta?.imageUrl ?? dex?.imageUrl ?? null;
   const mergedSocials = {
     ...(dex?.socials ?? {}),
     ...(meta?.socials ?? {}),
@@ -36,7 +35,7 @@ export async function buildTokenRow(
     ticker,
     name,
     description,
-    imageUrl,
+    imageUrl: meta?.imageUrl ?? dex?.imageUrl ?? null,
     createdAt: null, // filled lazily
     migratedAt: m.blockTime,
     migrationSignature: m.signature,
@@ -70,6 +69,7 @@ export async function upsertToken(row: EnrichedTokenRow) {
         name: sql`coalesce(excluded.name, ${schema.tokens.name})`,
         description: sql`coalesce(excluded.description, ${schema.tokens.description})`,
         imageUrl: sql`coalesce(excluded.image_url, ${schema.tokens.imageUrl})`,
+        metadataUri: sql`coalesce(excluded.metadata_uri, ${schema.tokens.metadataUri})`,
         socials: sql`coalesce(excluded.socials, ${schema.tokens.socials})`,
         priceUsd: sql`excluded.price_usd`,
         mcapUsd: sql`excluded.mcap_usd`,
@@ -116,9 +116,9 @@ export async function backfillSlowFields(mint: string) {
 }
 
 /**
- * Fire-and-forget retry loop for the metadata image. Helius DAS can lag the
- * actual on-chain Metaplex metadata by a few seconds for fresh migrations,
- * so we re-poll a few times before giving up.
+ * Fire-and-forget retry loop for the metadata URI. Helius DAS can lag a
+ * fresh migration by several seconds; once it catches up we save the URI
+ * and the browser will resolve the actual image on next render.
  */
 export async function retryImageInBackground(mint: string) {
   const delays = [3_000, 8_000, 15_000];
@@ -126,24 +126,28 @@ export async function retryImageInBackground(mint: string) {
     await new Promise((r) => setTimeout(r, wait));
     try {
       const [row] = await db
-        .select({ imageUrl: schema.tokens.imageUrl })
+        .select({
+          imageUrl: schema.tokens.imageUrl,
+          metadataUri: schema.tokens.metadataUri,
+        })
         .from(schema.tokens)
         .where(sql`${schema.tokens.mint} = ${mint}`)
         .limit(1);
       if (row?.imageUrl) return; // somebody else (refresh) already filled it
 
       const meta = await fetchTokenMetadata(mint);
-      if (meta.imageUrl) {
+      if (meta.imageUrl || meta.metadataUri) {
         await db
           .update(schema.tokens)
           .set({
-            imageUrl: meta.imageUrl,
+            imageUrl: meta.imageUrl ?? undefined,
+            metadataUri: meta.metadataUri ?? undefined,
             ticker: sql`coalesce(${schema.tokens.ticker}, ${meta.symbol ?? null})`,
             name: sql`coalesce(${schema.tokens.name}, ${meta.name ?? null})`,
             description: sql`coalesce(${schema.tokens.description}, ${meta.description ?? null})`,
           })
           .where(sql`${schema.tokens.mint} = ${mint}`);
-        return;
+        if (meta.imageUrl) return;
       }
     } catch {
       // ignore, try next backoff
