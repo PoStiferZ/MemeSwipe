@@ -132,6 +132,16 @@ export type DasAsset = {
     links?: { image?: string };
     files?: { uri?: string; cdn_uri?: string; mime?: string; type?: string }[];
   };
+  // Token-2022 stores metadata inside the mint via the TokenMetadata extension;
+  // DAS surfaces it here.
+  mint_extensions?: {
+    metadata?: {
+      uri?: string;
+      mint?: string;
+      name?: string;
+      symbol?: string;
+    };
+  };
   token_info?: {
     symbol?: string;
     decimals?: number;
@@ -186,27 +196,39 @@ export type TokenMetadata = {
 };
 
 /**
- * Best-effort fetch of token metadata using all available paths:
+ * Resolve the Metaplex on-chain URI to the actual image URL.
  *
- *   1. Helius DAS (returns Metaplex on-chain metadata + DAS-cached image URI)
- *   2. If DAS gave a json_uri but no image, fetch the off-chain JSON and
- *      extract the image directly (Metaplex spec: `image` field)
- *   3. Wrap any raw IPFS URL behind the Helius CDN for reliability
- *
- * Returns whatever was found, with `imageUrl: null` if everything failed.
+ * Pipeline (in priority order):
+ *   1. Helius DAS (getAsset) — returns parsed metadata + cdn_uri (Helius
+ *      Cloudflare cache) + json_uri. Handles BOTH legacy Metaplex Metadata
+ *      and Token-2022 (where metadata is inside the mint account via the
+ *      TokenMetadata extension — exposed under `mint_extensions.metadata`).
+ *   2. If DAS didn't surface the image, fetch the off-chain JSON ourselves
+ *      from `content.json_uri` (Metaplex) or `mint_extensions.metadata.uri`
+ *      (Token-2022) and read its `image` field — the canonical Metaplex
+ *      JSON shape: { name, symbol, image, ... }
+ *   3. Wrap the final image URL behind the Helius CDN proxy so it loads
+ *      fast & reliably even when the source is a slow IPFS gateway.
  */
 export async function fetchTokenMetadata(mint: string): Promise<TokenMetadata> {
   const asset = await getAsset(mint).catch(() => null);
 
   let imageUrl = pickAssetImage(asset);
-  let name = asset?.content?.metadata?.name ?? null;
-  let symbol = asset?.content?.metadata?.symbol ?? null;
+  let name =
+    asset?.content?.metadata?.name ??
+    asset?.mint_extensions?.metadata?.name ??
+    null;
+  let symbol =
+    asset?.content?.metadata?.symbol ??
+    asset?.mint_extensions?.metadata?.symbol ??
+    null;
   let description = asset?.content?.metadata?.description ?? null;
   const socials: TokenMetadata["socials"] = {};
 
-  // Fall back to fetching the off-chain Metaplex JSON ourselves.
-  // DAS sometimes lists json_uri but doesn't surface the image link.
-  const jsonUri = asset?.content?.json_uri;
+  // Find any URI we can fetch — DAS may expose it under either field.
+  const jsonUri =
+    asset?.content?.json_uri ?? asset?.mint_extensions?.metadata?.uri;
+
   if ((!imageUrl || !name || !symbol) && jsonUri) {
     try {
       const res = await fetch(jsonUri, {
@@ -227,7 +249,7 @@ export async function fetchTokenMetadata(mint: string): Promise<TokenMetadata> {
         if (typeof json.website === "string") socials.website = json.website;
       }
     } catch {
-      // network/timeout — fall through with whatever we have
+      // network/timeout — return what we have
     }
   }
 
