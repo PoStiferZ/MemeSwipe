@@ -11,6 +11,8 @@ type Props = {
   onLoadMore: () => void;
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
   onRefreshOne: (mint: string) => Promise<void> | void;
+  sortDir: "desc" | "asc";
+  onSortChange: (dir: "desc" | "asc") => void;
 };
 
 export function SwipeList({
@@ -20,19 +22,22 @@ export function SwipeList({
   onLoadMore,
   onSwipe,
   onRefreshOne,
+  sortDir,
+  onSortChange,
 }: Props) {
   const [refreshing, setRefreshing] = useState(false);
 
-  const missingImageMints = useMemo(
-    () => tokens.filter((t) => !t.imageUrl).map((t) => t.mint),
+  const missingImages = useMemo(
+    () => tokens.filter((t) => !t.imageUrl).length,
     [tokens],
   );
 
   const refreshImages = async () => {
-    if (missingImageMints.length === 0 || refreshing) return;
+    if (refreshing || tokens.length === 0) return;
     setRefreshing(true);
-    // Run with concurrency 4 to be polite with DexScreener / Helius DAS.
-    const queue = [...missingImageMints];
+    // Always refresh ALL visible tokens (not just missing-image ones) so the
+    // user has a clear "force refresh" button. Concurrency 4 to be polite.
+    const queue = tokens.map((t) => t.mint);
     const workers = Array.from({ length: 4 }, async () => {
       while (queue.length > 0) {
         const mint = queue.shift();
@@ -58,11 +63,43 @@ export function SwipeList({
 
   return (
     <div className="space-y-2">
-      {missingImageMints.length > 0 ? (
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-white/40">
+          Migrated
+        </span>
+        <button
+          onClick={() => onSortChange("desc")}
+          className={`rounded-full px-2.5 py-1 text-[11px] ${
+            sortDir === "desc"
+              ? "bg-accent font-semibold text-black"
+              : "border border-line bg-card text-white/70"
+          }`}
+        >
+          Newest first
+        </button>
+        <button
+          onClick={() => onSortChange("asc")}
+          className={`rounded-full px-2.5 py-1 text-[11px] ${
+            sortDir === "asc"
+              ? "bg-accent font-semibold text-black"
+              : "border border-line bg-card text-white/70"
+          }`}
+        >
+          Oldest first
+        </button>
         <button
           onClick={refreshImages}
-          disabled={refreshing}
-          className="flex w-full items-center justify-center gap-2 rounded-full border border-line bg-card py-2 text-xs text-white/70 disabled:opacity-50"
+          disabled={refreshing || tokens.length === 0}
+          className={`ml-auto flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] disabled:opacity-40 ${
+            missingImages > 0
+              ? "border border-accent bg-accent/10 text-accent"
+              : "border border-line bg-card text-white/70"
+          }`}
+          title={
+            missingImages > 0
+              ? `${missingImages} missing — refresh all visible`
+              : "Refresh all visible images"
+          }
         >
           <svg
             viewBox="0 0 24 24"
@@ -79,11 +116,11 @@ export function SwipeList({
           </svg>
           {refreshing
             ? "Refreshing…"
-            : `Refresh ${missingImageMints.length} missing image${
-                missingImageMints.length > 1 ? "s" : ""
-              }`}
+            : missingImages > 0
+              ? `Refresh (${missingImages} missing)`
+              : "Refresh"}
         </button>
-      ) : null}
+      </div>
 
       <ul className="space-y-2">
         {tokens.map((t) => (

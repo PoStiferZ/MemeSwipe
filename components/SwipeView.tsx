@@ -62,14 +62,27 @@ export function SwipeView() {
     }
   }, []);
 
+  const [sortDir, setSortDir] = useState<"desc" | "asc">(() => {
+    if (typeof window === "undefined") return "desc";
+    return (window.localStorage.getItem("memeswipe.sortDir") as "desc" | "asc") ?? "desc";
+  });
+  const switchSort = useCallback((dir: "desc" | "asc") => {
+    setSortDir(dir);
+    try {
+      window.localStorage.setItem("memeswipe.sortDir", dir);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const setFilters = useCallback((next: Filters) => {
     setFiltersState(next);
     saveFilters(next);
   }, []);
 
   const queryKey = useMemo(
-    () => ["tokens", filters, walletAddr],
-    [filters, walletAddr],
+    () => ["tokens", filters, sortDir, walletAddr],
+    [filters, sortDir, walletAddr],
   );
 
   const { data, fetchNextPage, hasNextPage, isFetching, isFetchingNextPage } = useInfiniteQuery({
@@ -78,6 +91,7 @@ export function SwipeView() {
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       params.set("limit", "30");
+      params.set("sort", sortDir);
       if (filters.minMcap > 0) params.set("minMcap", String(filters.minMcap));
       if (filters.maxMcap > 0) params.set("maxMcap", String(filters.maxMcap));
       if (filters.minHolders > 0) params.set("minHolders", String(filters.minHolders));
@@ -216,6 +230,8 @@ export function SwipeView() {
             onLoadMore={() => fetchNextPage()}
             onSwipe={handleSwipe}
             onRefreshOne={refreshActiveCard}
+            sortDir={sortDir}
+            onSortChange={switchSort}
           />
         )}
       </div>

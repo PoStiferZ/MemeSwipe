@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, sql } from "drizzle-orm";
+import { and, asc, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db/client";
 import { fetchManyEnriched } from "@/lib/sources/dexscreener";
@@ -21,6 +21,7 @@ const QuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   excludeWallet: z.string().optional(),
+  sort: z.enum(["asc", "desc"]).default("desc"),
 });
 
 type TokenRow = typeof schema.tokens.$inferSelect;
@@ -83,8 +84,14 @@ export async function GET(req: NextRequest) {
     conditions.push(
       sql`${schema.tokens.migratedAt} <= ${new Date(q.until * 1000)}`,
     );
-  if (q.cursor)
-    conditions.push(sql`${schema.tokens.migratedAt} < ${new Date(q.cursor)}`);
+  if (q.cursor) {
+    // Cursor direction must match sort direction so pagination doesn't loop.
+    conditions.push(
+      q.sort === "asc"
+        ? sql`${schema.tokens.migratedAt} > ${new Date(q.cursor)}`
+        : sql`${schema.tokens.migratedAt} < ${new Date(q.cursor)}`,
+    );
+  }
 
   if (q.excludeWallet) {
     conditions.push(
@@ -98,7 +105,11 @@ export async function GET(req: NextRequest) {
     .select()
     .from(schema.tokens)
     .where(where)
-    .orderBy(desc(schema.tokens.migratedAt))
+    .orderBy(
+      q.sort === "asc"
+        ? asc(schema.tokens.migratedAt)
+        : desc(schema.tokens.migratedAt),
+    )
     .limit(q.limit);
 
   const [{ count: totalRemaining = 0 } = { count: 0 }] = await db

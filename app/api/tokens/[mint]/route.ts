@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { fetchEnriched } from "@/lib/sources/dexscreener";
-import { getAsset, pickAssetImage } from "@/lib/sources/helius";
+import { fetchTokenMetadata } from "@/lib/sources/helius";
 import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 
 export const runtime = "nodejs";
@@ -36,16 +36,21 @@ export async function GET(
     // keep row as-is
   }
 
-  if (!refreshed.imageUrl) {
+  if (!refreshed.imageUrl || !refreshed.ticker || !refreshed.name) {
     try {
-      const asset = await getAsset(mint);
-      const image = pickAssetImage(asset);
-      if (image) {
+      // fetchTokenMetadata = DAS + Metaplex off-chain JSON fallback,
+      // wraps the result through the Helius CDN.
+      const meta = await fetchTokenMetadata(mint);
+      const patch: Partial<typeof refreshed> = {};
+      if (!refreshed.imageUrl && meta.imageUrl) patch.imageUrl = meta.imageUrl;
+      if (!refreshed.ticker && meta.symbol) patch.ticker = meta.symbol;
+      if (!refreshed.name && meta.name) patch.name = meta.name;
+      if (Object.keys(patch).length > 0) {
         await db
           .update(schema.tokens)
-          .set({ imageUrl: image })
+          .set(patch)
           .where(sql`${schema.tokens.mint} = ${mint}`);
-        refreshed = { ...refreshed, imageUrl: image };
+        refreshed = { ...refreshed, ...patch };
       }
     } catch {
       // silent
