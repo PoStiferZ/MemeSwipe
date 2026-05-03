@@ -19,6 +19,7 @@ const QuerySchema = z.object({
   since: z.coerce.number().int().optional(),
   until: z.coerce.number().int().optional(),
   cursor: z.string().optional(),
+  page: z.coerce.number().int().min(1).optional(), // alternative to cursor
   limit: z.coerce.number().int().min(1).max(100).default(30),
   excludeWallet: z.string().optional(),
   sort: z.enum(["asc", "desc"]).default("desc"),
@@ -101,6 +102,7 @@ export async function GET(req: NextRequest) {
 
   const where = and(...conditions);
 
+  const offset = q.page ? (q.page - 1) * q.limit : 0;
   const rows = await db
     .select()
     .from(schema.tokens)
@@ -110,7 +112,8 @@ export async function GET(req: NextRequest) {
         ? asc(schema.tokens.migratedAt)
         : desc(schema.tokens.migratedAt),
     )
-    .limit(q.limit);
+    .limit(q.limit)
+    .offset(offset);
 
   const [{ count: totalRemaining = 0 } = { count: 0 }] = await db
     .select({ count: sql<number>`count(*)::int` })

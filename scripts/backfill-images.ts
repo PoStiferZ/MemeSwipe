@@ -6,49 +6,50 @@
  */
 import { sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
-import { fetchTokenMetadata } from "@/lib/sources/helius";
+import { fetchTokenMetadataBatch } from "@/lib/sources/helius";
 
-const THROTTLE_MS = Number(process.env.HELIUS_THROTTLE_MS ?? 1200);
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const BATCH = 100; // getAssetBatch supports up to 1000, 100 keeps memory sane
 
 async function main() {
   const rows = await db
-    .select({ mint: schema.tokens.mint, ticker: schema.tokens.ticker })
+    .select({
+      mint: schema.tokens.mint,
+      ticker: schema.tokens.ticker,
+      imageUrl: schema.tokens.imageUrl,
+      metadataUri: schema.tokens.metadataUri,
+    })
     .from(schema.tokens)
-    .where(sql`${schema.tokens.imageUrl} IS NULL`);
+    .where(sql`${schema.tokens.imageUrl} IS NULL OR ${schema.tokens.metadataUri} IS NULL`);
 
-  console.log(`[backfill-images] ${rows.length} tokens missing an image`);
+  console.log(`[backfill-images] ${rows.length} tokens to enrich`);
 
   let fixed = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const { mint, ticker } = rows[i];
-    try {
-      const meta = await fetchTokenMetadata(mint);
-      if (meta.imageUrl) {
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const slice = rows.slice(i, i + BATCH);
+    console.log(`  batch ${i + 1}-${i + slice.length}…`);
+    const result = await fetchTokenMetadataBatch(slice.map((r) => r.mint));
+    await Promise.all(
+      slice.map(async (r) => {
+        const meta = result.get(r.mint);
+        if (!meta) return;
+        const patch: Record<string, unknown> = {};
+        if (meta.imageUrl && !r.imageUrl) patch.imageUrl = meta.imageUrl;
+        if (meta.metadataUri && !r.metadataUri)
+          patch.metadataUri = meta.metadataUri;
+        if (meta.symbol) patch.ticker = sql`coalesce(${schema.tokens.ticker}, ${meta.symbol})`;
+        if (meta.name) patch.name = sql`coalesce(${schema.tokens.name}, ${meta.name})`;
+        if (meta.description)
+          patch.description = sql`coalesce(${schema.tokens.description}, ${meta.description})`;
+        if (Object.keys(patch).length === 0) return;
         await db
           .update(schema.tokens)
-          .set({
-            imageUrl: meta.imageUrl,
-            ticker: sql`coalesce(${schema.tokens.ticker}, ${meta.symbol ?? null})`,
-            name: sql`coalesce(${schema.tokens.name}, ${meta.name ?? null})`,
-            description: sql`coalesce(${schema.tokens.description}, ${meta.description ?? null})`,
-          })
-          .where(sql`${schema.tokens.mint} = ${mint}`);
-        fixed++;
-        console.log(
-          `  ✓ ${ticker ?? mint.slice(0, 6)} → ${meta.imageUrl.slice(0, 80)}`,
-        );
-      } else {
-        console.log(`  · ${ticker ?? mint.slice(0, 6)} no image found`);
-      }
-    } catch (err) {
-      console.error(
-        `  ✗ ${ticker ?? mint.slice(0, 6)} ${(err as Error).message}`,
-      );
-    }
-    if (i < rows.length - 1) await sleep(THROTTLE_MS);
+          .set(patch)
+          .where(sql`${schema.tokens.mint} = ${r.mint}`);
+        if (meta.imageUrl) fixed++;
+      }),
+    );
   }
-  console.log(`[backfill-images] done — ${fixed}/${rows.length} fixed`);
+  console.log(`[backfill-images] done — ${fixed}/${rows.length} got an image`);
   process.exit(0);
 }
 

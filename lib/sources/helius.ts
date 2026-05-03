@@ -193,78 +193,167 @@ export type TokenMetadata = {
     website?: string;
     discord?: string;
   };
+  metadataUri?: string | null;
 };
 
 /**
- * Resolve the Metaplex on-chain URI to the actual image URL.
+ * The single official image-resolution path:
+ *   1. DAS getAsset → extract the canonical Metaplex metadata URI
+ *      (works for legacy Metaplex AND Token-2022 mint extensions).
+ *   2. Fetch the JSON at that URI → read its `image` field.
+ *   3. Return everything (image, name, symbol, description, socials, URI).
  *
- * Pipeline (in priority order):
- *   1. Helius DAS (getAsset) — returns parsed metadata + cdn_uri (Helius
- *      Cloudflare cache) + json_uri. Handles BOTH legacy Metaplex Metadata
- *      and Token-2022 (where metadata is inside the mint account via the
- *      TokenMetadata extension — exposed under `mint_extensions.metadata`).
- *   2. If DAS didn't surface the image, fetch the off-chain JSON ourselves
- *      from `content.json_uri` (Metaplex) or `mint_extensions.metadata.uri`
- *      (Token-2022) and read its `image` field — the canonical Metaplex
- *      JSON shape: { name, symbol, image, ... }
- *   3. Wrap the final image URL behind the Helius CDN proxy so it loads
- *      fast & reliably even when the source is a slow IPFS gateway.
+ * The URI is returned so the caller can persist it; future refreshes can
+ * skip the DAS call entirely and just refetch the JSON.
  */
-export async function fetchTokenMetadata(mint: string): Promise<TokenMetadata> {
+export async function fetchTokenMetadata(
+  mint: string,
+): Promise<TokenMetadata> {
   const asset = await getAsset(mint).catch(() => null);
+  const uri = pickMetadataUri(asset);
 
-  let imageUrl = pickAssetImage(asset);
-  let name =
-    asset?.content?.metadata?.name ??
-    asset?.mint_extensions?.metadata?.name ??
-    null;
-  let symbol =
-    asset?.content?.metadata?.symbol ??
-    asset?.mint_extensions?.metadata?.symbol ??
-    null;
-  let description = asset?.content?.metadata?.description ?? null;
-  const socials: TokenMetadata["socials"] = {};
-
-  // Find any URI we can fetch — DAS may expose it under either field.
-  const jsonUri =
-    asset?.content?.json_uri ?? asset?.mint_extensions?.metadata?.uri;
-
-  if ((!imageUrl || !name || !symbol) && jsonUri) {
-    try {
-      const res = await fetch(jsonUri, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.ok) {
-        const json = (await res.json()) as Record<string, unknown>;
-        if (!imageUrl && typeof json.image === "string") imageUrl = json.image;
-        if (!imageUrl && typeof json.image_url === "string")
-          imageUrl = json.image_url;
-        if (!name && typeof json.name === "string") name = json.name;
-        if (!symbol && typeof json.symbol === "string") symbol = json.symbol;
-        if (!description && typeof json.description === "string")
-          description = json.description;
-        if (typeof json.twitter === "string") socials.twitter = json.twitter;
-        if (typeof json.telegram === "string") socials.telegram = json.telegram;
-        if (typeof json.website === "string") socials.website = json.website;
-      }
-    } catch {
-      // network/timeout — return what we have
-    }
+  if (!uri) {
+    // No URI at all — only thing we can return is what DAS surfaced directly.
+    return {
+      imageUrl: viaHeliusCdn(pickAssetImage(asset)),
+      name:
+        asset?.content?.metadata?.name ??
+        asset?.mint_extensions?.metadata?.name ??
+        null,
+      symbol:
+        asset?.content?.metadata?.symbol ??
+        asset?.mint_extensions?.metadata?.symbol ??
+        null,
+      description: asset?.content?.metadata?.description ?? null,
+      socials: {},
+      metadataUri: null,
+    };
   }
 
+  const json = await fetchMetadataJson(uri);
   return {
-    imageUrl: viaHeliusCdn(imageUrl),
-    name,
-    symbol,
-    description,
-    socials,
+    imageUrl:
+      json?.imageUrl ?? viaHeliusCdn(pickAssetImage(asset)),
+    name:
+      json?.name ??
+      asset?.content?.metadata?.name ??
+      asset?.mint_extensions?.metadata?.name ??
+      null,
+    symbol:
+      json?.symbol ??
+      asset?.content?.metadata?.symbol ??
+      asset?.mint_extensions?.metadata?.symbol ??
+      null,
+    description:
+      json?.description ?? asset?.content?.metadata?.description ?? null,
+    socials: json?.socials ?? {},
+    metadataUri: uri,
   };
+}
+
+/**
+ * Batch version: 1 Helius credit for up to 1000 mints.
+ * Used by the list view's "Refresh" button to bulk-update images.
+ */
+export async function fetchTokenMetadataBatch(
+  mints: string[],
+): Promise<Map<string, TokenMetadata>> {
+  const out = new Map<string, TokenMetadata>();
+  if (mints.length === 0) return out;
+
+  const assets = await getAssetBatch(mints).catch(() => null);
+  if (!assets) return out;
+
+  // Fetch all JSON URIs in parallel (concurrency cap to be polite to IPFS).
+  const tasks = mints.map(async (mint, i) => {
+    const asset = assets[i];
+    const uri = pickMetadataUri(asset);
+    const json = uri ? await fetchMetadataJson(uri) : null;
+    out.set(mint, {
+      imageUrl:
+        json?.imageUrl ?? viaHeliusCdn(pickAssetImage(asset)),
+      name:
+        json?.name ??
+        asset?.content?.metadata?.name ??
+        asset?.mint_extensions?.metadata?.name ??
+        null,
+      symbol:
+        json?.symbol ??
+        asset?.content?.metadata?.symbol ??
+        asset?.mint_extensions?.metadata?.symbol ??
+        null,
+      description:
+        json?.description ?? asset?.content?.metadata?.description ?? null,
+      socials: json?.socials ?? {},
+      metadataUri: uri,
+    });
+  });
+  await Promise.all(tasks);
+  return out;
 }
 
 export async function getAsset(mint: string): Promise<DasAsset | null> {
   // Helius DAS methods take a single object param (not the JSON-RPC array shape).
   return rpc<DasAsset | null>("getAsset", { id: mint });
+}
+
+/**
+ * Batch fetch up to 1000 mints in a single HTTP call (1 Helius credit).
+ * Order of returned assets matches the input ids.
+ */
+export async function getAssetBatch(
+  mints: string[],
+): Promise<(DasAsset | null)[]> {
+  if (mints.length === 0) return [];
+  return rpc<(DasAsset | null)[]>("getAssetBatch", { ids: mints });
+}
+
+/**
+ * Extract the canonical Metaplex metadata URI from a DAS asset.
+ * Works for both legacy Metaplex (content.json_uri) and Token-2022
+ * (mint_extensions.metadata.uri).
+ */
+export function pickMetadataUri(asset: DasAsset | null): string | null {
+  if (!asset) return null;
+  return (
+    asset.content?.json_uri ?? asset.mint_extensions?.metadata?.uri ?? null
+  );
+}
+
+/**
+ * Fetch & parse the off-chain Metaplex JSON file. This is the "metadata"
+ * the user is asking about: { name, symbol, image, description, ... }
+ *
+ * Returns null on network/parse failure.
+ */
+export async function fetchMetadataJson(
+  uri: string,
+): Promise<TokenMetadata | null> {
+  try {
+    const res = await fetch(uri, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as Record<string, unknown>;
+    const imageUrl =
+      (typeof json.image === "string" ? json.image : null) ??
+      (typeof json.image_url === "string" ? json.image_url : null);
+    return {
+      imageUrl: viaHeliusCdn(imageUrl),
+      name: typeof json.name === "string" ? json.name : null,
+      symbol: typeof json.symbol === "string" ? json.symbol : null,
+      description:
+        typeof json.description === "string" ? json.description : null,
+      socials: {
+        twitter: typeof json.twitter === "string" ? json.twitter : undefined,
+        telegram: typeof json.telegram === "string" ? json.telegram : undefined,
+        website: typeof json.website === "string" ? json.website : undefined,
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getHoldersCount(mint: string): Promise<number> {

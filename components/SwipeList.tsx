@@ -6,9 +6,11 @@ import { formatPercent, formatRelative, formatUsd } from "@/lib/format";
 
 type Props = {
   tokens: ApiToken[];
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  onLoadMore: () => void;
+  totalRemaining: number | null;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  isFetching: boolean;
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
   onRefreshOne: (mint: string) => Promise<void> | void;
   sortDir: "desc" | "asc";
@@ -17,9 +19,11 @@ type Props = {
 
 export function SwipeList({
   tokens,
-  hasNextPage,
-  isFetchingNextPage,
-  onLoadMore,
+  totalRemaining,
+  page,
+  pageSize,
+  onPageChange,
+  isFetching,
   onSwipe,
   onRefreshOne,
   sortDir,
@@ -32,11 +36,13 @@ export function SwipeList({
     [tokens],
   );
 
+  const totalPages = totalRemaining
+    ? Math.max(1, Math.ceil(totalRemaining / pageSize))
+    : 1;
+
   const refreshImages = async () => {
     if (refreshing || tokens.length === 0) return;
     setRefreshing(true);
-    // Always refresh ALL visible tokens (not just missing-image ones) so the
-    // user has a clear "force refresh" button. Concurrency 4 to be polite.
     const queue = tokens.map((t) => t.mint);
     const workers = Array.from({ length: 4 }, async () => {
       while (queue.length > 0) {
@@ -53,7 +59,7 @@ export function SwipeList({
     setRefreshing(false);
   };
 
-  if (tokens.length === 0) {
+  if (tokens.length === 0 && !isFetching) {
     return (
       <div className="mt-20 text-center text-white/50">
         Plus de tokens pour le moment.
@@ -122,29 +128,113 @@ export function SwipeList({
         </button>
       </div>
 
-      <ul className="space-y-2">
-        {tokens.map((t) => (
-          <Row key={t.mint} token={t} onSwipe={onSwipe} />
-        ))}
-      </ul>
+      {isFetching ? (
+        <div className="py-8 text-center text-xs text-white/40">Loading…</div>
+      ) : (
+        <ul className="space-y-2">
+          {tokens.map((t) => (
+            <Row key={t.mint} token={t} onSwipe={onSwipe} />
+          ))}
+        </ul>
+      )}
 
-      <div className="pt-2">
-        {hasNextPage ? (
-          <button
-            onClick={onLoadMore}
-            disabled={isFetchingNextPage}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-accent py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-          >
-            {isFetchingNextPage ? "Loading…" : "Load more"}
-          </button>
-        ) : (
-          <div className="py-3 text-center text-xs text-white/40">
-            End of list.
-          </div>
-        )}
-      </div>
+      <Pager
+        page={page}
+        totalPages={totalPages}
+        onChange={onPageChange}
+        disabled={isFetching}
+      />
     </div>
   );
+}
+
+function Pager({
+  page,
+  totalPages,
+  onChange,
+  disabled,
+}: {
+  page: number;
+  totalPages: number;
+  onChange: (p: number) => void;
+  disabled?: boolean;
+}) {
+  if (totalPages <= 1) return null;
+  // Build a window of page numbers around current: 1 … (page-1) page (page+1) … N
+  const pages = pageWindow(page, totalPages);
+  return (
+    <div className="flex items-center justify-center gap-1 pt-3">
+      <PagerBtn
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={disabled || page <= 1}
+        aria="Previous page"
+      >
+        ‹
+      </PagerBtn>
+      {pages.map((p, idx) =>
+        p === "…" ? (
+          <span key={`gap-${idx}`} className="px-1 text-white/30">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            disabled={disabled}
+            className={`min-w-[34px] rounded-full px-2 py-1 text-xs ${
+              p === page
+                ? "bg-accent font-semibold text-black"
+                : "border border-line bg-card text-white/70"
+            }`}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <PagerBtn
+        onClick={() => onChange(Math.min(totalPages, page + 1))}
+        disabled={disabled || page >= totalPages}
+        aria="Next page"
+      >
+        ›
+      </PagerBtn>
+    </div>
+  );
+}
+
+function PagerBtn({
+  children,
+  onClick,
+  disabled,
+  aria,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  aria: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={aria}
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-sm text-white/70 disabled:opacity-30"
+    >
+      {children}
+    </button>
+  );
+}
+
+function pageWindow(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out: (number | "…")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) out.push("…");
+  for (let p = start; p <= end; p++) out.push(p);
+  if (end < total - 1) out.push("…");
+  out.push(total);
+  return out;
 }
 
 function Row({

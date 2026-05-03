@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { fetchEnriched } from "@/lib/sources/dexscreener";
-import { fetchTokenMetadata } from "@/lib/sources/helius";
+import { fetchMetadataJson, fetchTokenMetadata } from "@/lib/sources/helius";
 import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 
 export const runtime = "nodejs";
@@ -36,25 +36,37 @@ export async function GET(
     // keep row as-is
   }
 
-  if (!refreshed.imageUrl || !refreshed.ticker || !refreshed.name) {
-    try {
-      // fetchTokenMetadata = DAS + Metaplex off-chain JSON fallback,
-      // wraps the result through the Helius CDN.
-      const meta = await fetchTokenMetadata(mint);
-      const patch: Partial<typeof refreshed> = {};
-      if (!refreshed.imageUrl && meta.imageUrl) patch.imageUrl = meta.imageUrl;
-      if (!refreshed.ticker && meta.symbol) patch.ticker = meta.symbol;
-      if (!refreshed.name && meta.name) patch.name = meta.name;
-      if (Object.keys(patch).length > 0) {
+  // Image refresh: prefer the saved metadata_uri (just refetch JSON, free,
+  // no Helius credit) and fall back to DAS only when we don't have it yet.
+  try {
+    let meta = null;
+    if (refreshed.metadataUri) {
+      meta = await fetchMetadataJson(refreshed.metadataUri);
+    }
+    if (!meta || (!meta.imageUrl && !refreshed.imageUrl)) {
+      const full = await fetchTokenMetadata(mint);
+      meta = full;
+      if (full.metadataUri && full.metadataUri !== refreshed.metadataUri) {
         await db
           .update(schema.tokens)
-          .set(patch)
+          .set({ metadataUri: full.metadataUri })
           .where(sql`${schema.tokens.mint} = ${mint}`);
-        refreshed = { ...refreshed, ...patch };
+        refreshed = { ...refreshed, metadataUri: full.metadataUri };
       }
-    } catch {
-      // silent
     }
+    const patch: Partial<typeof refreshed> = {};
+    if (meta?.imageUrl) patch.imageUrl = meta.imageUrl;
+    if (!refreshed.ticker && meta?.symbol) patch.ticker = meta.symbol;
+    if (!refreshed.name && meta?.name) patch.name = meta.name;
+    if (Object.keys(patch).length > 0) {
+      await db
+        .update(schema.tokens)
+        .set(patch)
+        .where(sql`${schema.tokens.mint} = ${mint}`);
+      refreshed = { ...refreshed, ...patch };
+    }
+  } catch {
+    // silent
   }
 
   return NextResponse.json({ token: refreshed });

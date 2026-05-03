@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { SwipeDeck } from "./SwipeDeck";
 import { SwipeList } from "./SwipeList";
@@ -85,8 +90,9 @@ export function SwipeView() {
     [filters, sortDir, walletAddr],
   );
 
-  const { data, fetchNextPage, hasNextPage, isFetching, isFetchingNextPage } = useInfiniteQuery({
+  const { data, fetchNextPage, hasNextPage, isFetching } = useInfiniteQuery({
     queryKey,
+    enabled: viewMode === "deck",
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
@@ -113,14 +119,55 @@ export function SwipeView() {
   const tokens = data?.pages.flatMap((p) => p.tokens) ?? [];
   const totalRemaining = data?.pages[0]?.totalRemaining ?? null;
 
-  // Auto-prefetch the next page as soon as the deck gets low — this keeps
-  // swiping continuous instead of stalling out on "Plus de tokens" while a
-  // fresh page loads.
+  // Separate paginated query for the List view.
+  const [listPage, setListPage] = useState(1);
+  // Reset to page 1 when filters/sort/wallet change.
   useEffect(() => {
-    if (tokens.length < 8 && hasNextPage && !isFetching) {
+    setListPage(1);
+  }, [filters, sortDir, walletAddr]);
+
+  const PAGE_SIZE = 30;
+  const listKey = useMemo(
+    () => ["tokens-list", filters, sortDir, walletAddr, listPage],
+    [filters, sortDir, walletAddr, listPage],
+  );
+
+  const { data: listData, isFetching: isListFetching } = useQuery({
+    queryKey: listKey,
+    enabled: viewMode === "list",
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", String(PAGE_SIZE));
+      params.set("page", String(listPage));
+      params.set("sort", sortDir);
+      if (filters.minMcap > 0) params.set("minMcap", String(filters.minMcap));
+      if (filters.maxMcap > 0) params.set("maxMcap", String(filters.maxMcap));
+      if (filters.minHolders > 0)
+        params.set("minHolders", String(filters.minHolders));
+      if (filters.sinceDays > 0) {
+        params.set(
+          "since",
+          String(Math.floor(Date.now() / 1000) - filters.sinceDays * 86400),
+        );
+      }
+      if (walletAddr) params.set("excludeWallet", walletAddr);
+      const res = await fetch(`/api/tokens?${params.toString()}`);
+      if (!res.ok) throw new Error(`tokens ${res.status}`);
+      return (await res.json()) as TokensPage;
+    },
+  });
+
+  // Auto-prefetch the next deck page when the deck gets low (deck mode only).
+  useEffect(() => {
+    if (
+      viewMode === "deck" &&
+      tokens.length < 8 &&
+      hasNextPage &&
+      !isFetching
+    ) {
       fetchNextPage();
     }
-  }, [tokens.length, hasNextPage, isFetching, fetchNextPage]);
+  }, [viewMode, tokens.length, hasNextPage, isFetching, fetchNextPage]);
 
   const refreshActiveCard = useCallback(
     async (mint: string) => {
@@ -128,6 +175,7 @@ export function SwipeView() {
         const res = await fetch(`/api/tokens/${mint}`);
         if (!res.ok) return;
         const { token } = (await res.json()) as { token: ApiToken };
+        // Patch deck infinite query
         qc.setQueryData<{ pages: TokensPage[]; pageParams: unknown[] }>(
           queryKey,
           (prev) =>
@@ -143,11 +191,22 @@ export function SwipeView() {
                 }
               : prev,
         );
+        // Patch list paginated query
+        qc.setQueryData<TokensPage>(listKey, (prev) =>
+          prev
+            ? {
+                ...prev,
+                tokens: prev.tokens.map((t) =>
+                  t.mint === mint ? token : t,
+                ),
+              }
+            : prev,
+        );
       } catch {
         // silent
       }
     },
-    [qc, queryKey],
+    [qc, queryKey, listKey],
   );
 
   const swipeMut = useMutation({
@@ -156,9 +215,7 @@ export function SwipeView() {
       return swipe(walletAddr, mint, action);
     },
     onMutate: ({ mint }) => {
-      // Optimistically: drop the swiped token from every cached page and
-      // decrement the counter on the first page so the header updates
-      // immediately, without waiting for a refetch.
+      // Drop the swiped token from BOTH caches and decrement counters.
       qc.setQueryData<{ pages: TokensPage[]; pageParams: unknown[] }>(
         queryKey,
         (prev) => {
@@ -176,6 +233,22 @@ export function SwipeView() {
           };
         },
       );
+      qc.setQueryData<TokensPage>(listKey, (prev) =>
+        prev
+          ? {
+              ...prev,
+              tokens: prev.tokens.filter((t) => t.mint !== mint),
+              totalRemaining:
+                prev.totalRemaining != null
+                  ? Math.max(0, prev.totalRemaining - 1)
+                  : prev.totalRemaining,
+            }
+          : prev,
+      );
+      // Other list pages may now contain the same token via offset shift,
+      // but invalidating them all would cause noisy refetches. We just
+      // invalidate so they refresh next time the user navigates there.
+      qc.invalidateQueries({ queryKey: ["tokens-list"], exact: false });
     },
     onError: (err) => setToast((err as Error).message),
     onSuccess: () => {
@@ -199,17 +272,21 @@ export function SwipeView() {
       <FilterBar
         filters={filters}
         onChange={setFilters}
-        remaining={totalRemaining}
+        remaining={
+          viewMode === "list"
+            ? (listData?.totalRemaining ?? null)
+            : totalRemaining
+        }
       />
 
       <ViewToggle mode={viewMode} onChange={switchView} />
 
       <div className="flex-1 px-4 pt-3 pb-4">
-        {tokens.length === 0 && !hasNextPage && !isFetching ? (
+        {viewMode === "deck" && tokens.length === 0 && !hasNextPage && !isFetching ? (
           <div className="mt-20 text-center text-white/50">
             Plus de tokens pour le moment.
           </div>
-        ) : tokens.length === 0 && isFetching ? (
+        ) : viewMode === "deck" && tokens.length === 0 && isFetching ? (
           <div className="mt-20 flex flex-col items-center gap-3 text-white/50">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
             Loading…
@@ -224,10 +301,14 @@ export function SwipeView() {
           />
         ) : (
           <SwipeList
-            tokens={tokens}
-            hasNextPage={Boolean(hasNextPage)}
-            isFetchingNextPage={isFetchingNextPage}
-            onLoadMore={() => fetchNextPage()}
+            tokens={listData?.tokens ?? []}
+            totalRemaining={
+              listData?.totalRemaining ?? totalRemaining ?? null
+            }
+            page={listPage}
+            pageSize={PAGE_SIZE}
+            onPageChange={setListPage}
+            isFetching={isListFetching}
             onSwipe={handleSwipe}
             onRefreshOne={refreshActiveCard}
             sortDir={sortDir}

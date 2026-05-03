@@ -32,6 +32,7 @@ export const tokens = pgTable(
     migratedAt: timestamp("migrated_at", { withTimezone: true }).notNull(),
     migrationSignature: text("migration_signature"),
     poolAddress: text("pool_address"),
+    metadataUri: text("metadata_uri"),
 
     socials: jsonb("socials").$type<{
       twitter?: string;

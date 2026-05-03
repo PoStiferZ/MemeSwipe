@@ -41,6 +41,7 @@ export async function buildTokenRow(
     migratedAt: m.blockTime,
     migrationSignature: m.signature,
     poolAddress: m.poolAddress,
+    metadataUri: meta?.metadataUri ?? null,
     socials: mergedSocials,
     priceUsd: dex?.priceUsd != null ? String(dex.priceUsd) : null,
     mcapUsd: dex?.mcapUsd != null ? String(dex.mcapUsd) : null,
