@@ -1,0 +1,247 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { ApiToken } from "@/lib/types";
+import { formatPercent, formatRelative, formatUsd } from "@/lib/format";
+
+type Props = {
+  tokens: ApiToken[];
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  onLoadMore: () => void;
+  onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
+  onRefreshOne: (mint: string) => Promise<void> | void;
+};
+
+export function SwipeList({
+  tokens,
+  hasNextPage,
+  isFetchingNextPage,
+  onLoadMore,
+  onSwipe,
+  onRefreshOne,
+}: Props) {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const missingImageMints = useMemo(
+    () => tokens.filter((t) => !t.imageUrl).map((t) => t.mint),
+    [tokens],
+  );
+
+  const refreshImages = async () => {
+    if (missingImageMints.length === 0 || refreshing) return;
+    setRefreshing(true);
+    // Run with concurrency 4 to be polite with DexScreener / Helius DAS.
+    const queue = [...missingImageMints];
+    const workers = Array.from({ length: 4 }, async () => {
+      while (queue.length > 0) {
+        const mint = queue.shift();
+        if (!mint) return;
+        try {
+          await onRefreshOne(mint);
+        } catch {
+          // ignore
+        }
+      }
+    });
+    await Promise.all(workers);
+    setRefreshing(false);
+  };
+
+  if (tokens.length === 0) {
+    return (
+      <div className="mt-20 text-center text-white/50">
+        Plus de tokens pour le moment.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {missingImageMints.length > 0 ? (
+        <button
+          onClick={refreshImages}
+          disabled={refreshing}
+          className="flex w-full items-center justify-center gap-2 rounded-full border border-line bg-card py-2 text-xs text-white/70 disabled:opacity-50"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          {refreshing
+            ? "Refreshing…"
+            : `Refresh ${missingImageMints.length} missing image${
+                missingImageMints.length > 1 ? "s" : ""
+              }`}
+        </button>
+      ) : null}
+
+      <ul className="space-y-2">
+        {tokens.map((t) => (
+          <Row key={t.mint} token={t} onSwipe={onSwipe} />
+        ))}
+      </ul>
+
+      <div className="pt-2">
+        {hasNextPage ? (
+          <button
+            onClick={onLoadMore}
+            disabled={isFetchingNextPage}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-accent py-2.5 text-sm font-semibold text-black disabled:opacity-50"
+          >
+            {isFetchingNextPage ? "Loading…" : "Load more"}
+          </button>
+        ) : (
+          <div className="py-3 text-center text-xs text-white/40">
+            End of list.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  token,
+  onSwipe,
+}: {
+  token: ApiToken;
+  onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
+}) {
+  const onRowClick = () =>
+    window.open(
+      `https://dexscreener.com/solana/${token.mint}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  const change1h = token.change2h == null ? null : Number(token.change2h);
+  const change24h = token.change24h == null ? null : Number(token.change24h);
+
+  return (
+    <li
+      onClick={onRowClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onRowClick();
+        }
+      }}
+      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-line bg-card p-3 transition hover:border-white/20 active:scale-[0.99]"
+    >
+      {token.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={token.imageUrl}
+          alt={token.ticker ?? token.mint}
+          className="h-12 w-12 rounded-lg object-cover"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-black/40 text-[10px] text-white/30">
+          ?
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-semibold">
+          ${token.ticker ?? "?"}{" "}
+          <span className="text-xs font-normal text-white/50">
+            {token.name}
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          <Pill tone="neutral">{formatUsd(token.mcapUsd)}</Pill>
+          <ChangePill label="1h" value={change1h} />
+          <ChangePill label="24h" value={change24h} />
+        </div>
+        <div className="mt-1 text-[10px] text-white/40">
+          migrated {formatRelative(token.migratedAt)}
+        </div>
+      </div>
+
+      <div className="flex shrink-0 flex-col gap-1.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSwipe(token, "like");
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-like/40 bg-like/10 text-like hover:bg-like/25 active:scale-90"
+          aria-label="Like"
+          title="Like"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+            <path d="M12 21s-7-4.534-9.193-9.066C1.62 9.5 2.97 6 6.36 6c1.97 0 3.32 1.16 4.14 2.4.21.32.69.32.9 0C12.22 7.16 13.57 6 15.54 6c3.39 0 4.74 3.5 3.55 5.934C19.0 16.466 12 21 12 21z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSwipe(token, "dislike");
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-dislike/40 bg-dislike/10 text-dislike hover:bg-dislike/25 active:scale-90"
+          aria-label="Dislike"
+          title="Dislike"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function Pill({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "up" | "down";
+}) {
+  const cls =
+    tone === "up"
+      ? "bg-like/15 text-like"
+      : tone === "down"
+        ? "bg-dislike/15 text-dislike"
+        : "bg-black/40 text-white/80";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ChangePill({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | null;
+}) {
+  const tone: "up" | "down" | "neutral" =
+    value == null || value === 0 ? "neutral" : value > 0 ? "up" : "down";
+  return (
+    <Pill tone={tone}>
+      <span className="mr-0.5 opacity-60">{label}</span>
+      {formatPercent(value)}
+    </Pill>
+  );
+}

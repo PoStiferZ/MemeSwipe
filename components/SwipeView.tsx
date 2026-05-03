@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilterBar } from "./FilterBar";
 import { SwipeDeck } from "./SwipeDeck";
+import { SwipeList } from "./SwipeList";
 import { BottomNav } from "./BottomNav";
 import { swipe } from "@/lib/client/session";
 import { useEffectiveWallet } from "@/lib/client/wallet";
@@ -48,6 +49,18 @@ export function SwipeView() {
   const qc = useQueryClient();
   const [filters, setFiltersState] = useState<Filters>(loadFilters);
   const [toast, setToast] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"deck" | "list">(() => {
+    if (typeof window === "undefined") return "deck";
+    return (window.localStorage.getItem("memeswipe.viewMode") as "deck" | "list") ?? "deck";
+  });
+  const switchView = useCallback((mode: "deck" | "list") => {
+    setViewMode(mode);
+    try {
+      window.localStorage.setItem("memeswipe.viewMode", mode);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const setFilters = useCallback((next: Filters) => {
     setFiltersState(next);
@@ -59,7 +72,7 @@ export function SwipeView() {
     [filters, walletAddr],
   );
 
-  const { data, fetchNextPage, hasNextPage, isFetching } = useInfiniteQuery({
+  const { data, fetchNextPage, hasNextPage, isFetching, isFetchingNextPage } = useInfiniteQuery({
     queryKey,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
@@ -175,7 +188,9 @@ export function SwipeView() {
         remaining={totalRemaining}
       />
 
-      <div className="flex-1 px-4 pt-6">
+      <ViewToggle mode={viewMode} onChange={switchView} />
+
+      <div className="flex-1 px-4 pt-3 pb-4">
         {tokens.length === 0 && !hasNextPage && !isFetching ? (
           <div className="mt-20 text-center text-white/50">
             Plus de tokens pour le moment.
@@ -185,13 +200,22 @@ export function SwipeView() {
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
             Loading…
           </div>
-        ) : (
+        ) : viewMode === "deck" ? (
           <SwipeDeck
             tokens={tokens}
             onSwipe={handleSwipe}
             onActiveCard={refreshActiveCard}
             isLoadingMore={isFetching}
             hasMore={Boolean(hasNextPage)}
+          />
+        ) : (
+          <SwipeList
+            tokens={tokens}
+            hasNextPage={Boolean(hasNextPage)}
+            isFetchingNextPage={isFetchingNextPage}
+            onLoadMore={() => fetchNextPage()}
+            onSwipe={handleSwipe}
+            onRefreshOne={refreshActiveCard}
           />
         )}
       </div>
@@ -206,6 +230,49 @@ export function SwipeView() {
           {toast}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ViewToggle({
+  mode,
+  onChange,
+}: {
+  mode: "deck" | "list";
+  onChange: (m: "deck" | "list") => void;
+}) {
+  return (
+    <div className="px-4 pt-3">
+      <div className="inline-flex rounded-full border border-line bg-card p-0.5 text-xs">
+        <button
+          onClick={() => onChange("deck")}
+          className={`flex items-center gap-1 rounded-full px-3 py-1 ${
+            mode === "deck" ? "bg-accent font-semibold text-black" : "text-white/60"
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="6" y="4" width="12" height="14" rx="2" />
+            <rect x="3" y="7" width="12" height="14" rx="2" opacity="0.5" />
+          </svg>
+          Deck
+        </button>
+        <button
+          onClick={() => onChange("list")}
+          className={`flex items-center gap-1 rounded-full px-3 py-1 ${
+            mode === "list" ? "bg-accent font-semibold text-black" : "text-white/60"
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          List
+        </button>
+      </div>
     </div>
   );
 }
