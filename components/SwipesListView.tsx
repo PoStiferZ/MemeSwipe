@@ -54,7 +54,7 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const qc = useQueryClient();
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<SortKey>("recent");
+  const [sort, setSort] = useState<SortKey>(kind === "liked" ? "mcap" : "recent");
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const [addInput, setAddInput] = useState("");
