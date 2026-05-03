@@ -122,7 +122,13 @@ export function SwipeList({
         </button>
       </div>
 
-      {isFetching ? (
+      {/*
+        Render the rows even while a background refetch is happening.
+        That's the whole point of optimistic updates — the swiped row is
+        already gone from the cache, so showing a loading spinner here
+        would just blank the page during the next paint.
+      */}
+      {tokens.length === 0 && isFetching ? (
         <div className="py-8 text-center text-xs text-white/40">Loading…</div>
       ) : (
         <ul className="space-y-2">
@@ -136,7 +142,7 @@ export function SwipeList({
         page={page}
         totalPages={totalPages}
         onChange={onPageChange}
-        disabled={isFetching}
+        disabled={false}
       />
     </div>
   );
@@ -286,6 +292,7 @@ function Row({
           <Pill tone="neutral">{formatUsd(token.mcapUsd)}</Pill>
           <ChangePill label="1h" value={change1h} />
           <ChangePill label="24h" value={change24h} />
+          <Socials socials={token.socials} />
         </div>
         <div className="mt-1 text-[10px] text-white/40">
           migrated {formatRelative(token.migratedAt)}
@@ -304,8 +311,8 @@ function Row({
           aria-label="Like"
           title="Like"
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-            <path d="M12 21s-7-4.534-9.193-9.066C1.62 9.5 2.97 6 6.36 6c1.97 0 3.32 1.16 4.14 2.4.21.32.69.32.9 0C12.22 7.16 13.57 6 15.54 6c3.39 0 4.74 3.5 3.55 5.934C19.0 16.466 12 21 12 21z" />
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
           </svg>
         </button>
         <button
@@ -319,7 +326,7 @@ function Row({
           aria-label="Dislike"
           title="Dislike"
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <line x1="6" y1="6" x2="18" y2="18" />
             <line x1="18" y1="6" x2="6" y2="18" />
           </svg>
@@ -347,6 +354,34 @@ function Pill({
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
     >
       {children}
+    </span>
+  );
+}
+
+function Socials({ socials }: { socials: ApiToken["socials"] }) {
+  if (!socials) return null;
+  const items: { key: string; href: string; label: string; glyph: string }[] = [];
+  if (socials.twitter) items.push({ key: "twitter", href: socials.twitter, label: "Twitter", glyph: "𝕏" });
+  if (socials.telegram) items.push({ key: "telegram", href: socials.telegram, label: "Telegram", glyph: "✈" });
+  if (socials.website) items.push({ key: "website", href: socials.website, label: "Website", glyph: "🌐" });
+  if (socials.discord) items.push({ key: "discord", href: socials.discord, label: "Discord", glyph: "💬" });
+  if (items.length === 0) return null;
+  return (
+    <span className="ml-0.5 inline-flex items-center gap-1">
+      {items.map((it) => (
+        <a
+          key={it.key}
+          href={it.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={it.label}
+          title={it.label}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/40 text-[11px] text-white/70 hover:bg-black/60 hover:text-white"
+        >
+          {it.glyph}
+        </a>
+      ))}
     </span>
   );
 }

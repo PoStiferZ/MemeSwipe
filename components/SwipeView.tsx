@@ -273,10 +273,11 @@ export function SwipeView() {
             }
           : prev,
       );
-      // Other list pages may now contain the same token via offset shift,
-      // but invalidating them all would cause noisy refetches. We just
-      // invalidate so they refresh next time the user navigates there.
-      qc.invalidateQueries({ queryKey: ["tokens-list"], exact: false });
+      // No `invalidateQueries` here on purpose. The optimistic patches
+      // above are exact and cheap; invalidating triggers a full refetch
+      // of the visible page, which blanks the list to a "Loading…" state
+      // mid-swipe and breaks the rapid-fire flow the user wants. Other
+      // pages will refetch naturally next time they become active.
     },
     onError: (err) => setToast((err as Error).message),
     onSuccess: () => {
