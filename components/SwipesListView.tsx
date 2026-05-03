@@ -56,6 +56,9 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortKey>("recent");
   const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addInput, setAddInput] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
 
   const { data, isLoading, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["swipes", walletAddr],
@@ -119,6 +122,63 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
       qc.invalidateQueries({ queryKey: ["tokens"] });
     },
   });
+
+  const addManualMut = useMutation({
+    mutationFn: async (mint: string) => {
+      if (!walletAddr) throw new Error("wallet not connected");
+      const res = await fetch("/api/swipes/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallet: walletAddr, mint }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { ok: boolean; token: ApiToken }
+        | { error: unknown }
+        | null;
+      if (!res.ok || !body || !("ok" in body)) {
+        const msg =
+          body && "error" in body && typeof body.error === "string"
+            ? body.error
+            : `add failed (${res.status})`;
+        throw new Error(msg);
+      }
+      return body.token;
+    },
+    onSuccess: (token) => {
+      // Optimistic prepend so it appears immediately at the top of the list.
+      qc.setQueryData<{ swipes: SwipeRow[] }>(["swipes", walletAddr], (old) => {
+        if (!old) return old;
+        const next = old.swipes.filter((s) => s.mint !== token.mint);
+        return {
+          swipes: [
+            {
+              mint: token.mint,
+              action: "like" as const,
+              createdAt: new Date().toISOString(),
+              token,
+            },
+            ...next,
+          ],
+        };
+      });
+      // Background revalidation so server-truth wins.
+      qc.invalidateQueries({ queryKey: ["swipes", walletAddr] });
+      setAddInput("");
+      setAddError(null);
+      setAdding(false);
+    },
+    onError: (err: Error) => setAddError(err.message),
+  });
+
+  const submitAdd = () => {
+    const mint = addInput.trim();
+    if (mint.length < 32 || mint.length > 44) {
+      setAddError("Solana mint must be 32–44 characters");
+      return;
+    }
+    setAddError(null);
+    addManualMut.mutate(mint);
+  };
 
   const allSwipes = data?.swipes ?? [];
   const likeCount = allSwipes.filter((s) => s.action === "like").length;
@@ -188,6 +248,33 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {kind === "liked" ? (
+              <button
+                onClick={() => {
+                  setAdding((a) => !a);
+                  setAddError(null);
+                }}
+                aria-label={adding ? "Close add token" : "Add token by CA"}
+                title={adding ? "Close" : "Add token by CA"}
+                className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                  adding
+                    ? "border-accent bg-accent text-black"
+                    : "border-line bg-card text-white/70 hover:text-white"
+                }`}
+              >
+                {adding ? (
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                )}
+              </button>
+            ) : null}
             {supportsBulkDelete && rows.length > 0 ? (
               selecting ? (
                 <button
@@ -208,6 +295,48 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
             <WalletButton compact />
           </div>
         </div>
+
+        {kind === "liked" && adding ? (
+          <div className="mt-2 space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={addInput}
+                onChange={(e) => {
+                  setAddInput(e.target.value);
+                  if (addError) setAddError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitAdd();
+                  if (e.key === "Escape") {
+                    setAdding(false);
+                    setAddError(null);
+                  }
+                }}
+                placeholder="Paste a Solana CA…"
+                spellCheck={false}
+                autoComplete="off"
+                autoFocus
+                disabled={addManualMut.isPending}
+                className="flex-1 rounded-full border border-line bg-card px-4 py-2 text-sm outline-none placeholder:text-white/40 focus:border-accent disabled:opacity-50"
+              />
+              <button
+                onClick={submitAdd}
+                disabled={addManualMut.isPending || addInput.trim().length === 0}
+                className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-black disabled:opacity-50"
+              >
+                {addManualMut.isPending ? "Adding…" : "Add"}
+              </button>
+            </div>
+            {addError ? (
+              <div className="px-1 text-[11px] text-dislike">{addError}</div>
+            ) : (
+              <div className="px-1 text-[11px] text-white/40">
+                Fetches the token from DexScreener + Helius and likes it.
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {kind === "disliked" ? (
           <div className="relative mt-2">
