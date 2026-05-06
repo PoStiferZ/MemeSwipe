@@ -1,10 +1,16 @@
 /**
- * One-shot script: registers (or updates) the Helius webhook that POSTs PumpSwap
- * transactions to /api/webhooks/helius.
+ * One-shot script: registers (or updates) the Helius webhook that POSTs
+ * Pump.fun migration events to /api/webhooks/helius.
+ *
+ * The migration `create_pool` instruction is a CPI from the Pump.fun V1
+ * program — subscribing to that program and filtering by CREATE_POOL gives
+ * us exactly the events we care about (and avoids the ~3000/20s firehose
+ * of unrelated `claim_cashback` and other "ANY" transactions).
  *
  * Usage: pnpm register-webhook
  */
-import { PUMPSWAP_PROGRAM_ID } from "@/lib/sources/helius";
+
+const PUMPFUN_V1_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
 async function main() {
   const apiKey = process.env.HELIUS_API_KEY;
@@ -18,8 +24,8 @@ async function main() {
   const webhookURL = `${appUrl.replace(/\/$/, "")}/api/webhooks/helius`;
   const payload = {
     webhookURL,
-    accountAddresses: [PUMPSWAP_PROGRAM_ID],
-    transactionTypes: ["ANY"],
+    accountAddresses: [PUMPFUN_V1_PROGRAM_ID],
+    transactionTypes: ["CREATE_POOL"],
     webhookType: "enhanced",
     authHeader: auth,
   };
