@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { WalletButton } from "./WalletButton";
 import { BottomNav } from "./BottomNav";
 import { useEffectiveWallet } from "@/lib/client/wallet";
-import { formatPercent, formatUsd, formatRelative } from "@/lib/format";
+import { axiomUrl, formatPercent, formatUsd, formatRelative } from "@/lib/format";
 import type { ApiToken } from "@/lib/types";
 
 type SortKey = "recent" | "change1h" | "change24h" | "mcap";
@@ -419,9 +419,9 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
               const onRowClick = () => {
                 if (selecting) {
                   toggleSelect(row.mint);
-                } else {
+                } else if (row.token) {
                   window.open(
-                    `https://dexscreener.com/solana/${row.mint}`,
+                    axiomUrl(row.token),
                     "_blank",
                     "noopener,noreferrer",
                   );

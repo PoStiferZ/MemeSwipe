@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ApiToken } from "@/lib/types";
-import { formatPercent, formatRelative, formatUsd } from "@/lib/format";
+import { axiomUrl, formatPercent, formatRelative, formatUsd } from "@/lib/format";
 import { isCanonicalImageUrl } from "@/lib/sources/helius";
 
 type Props = {
@@ -245,11 +245,7 @@ function Row({
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
 }) {
   const onRowClick = () =>
-    window.open(
-      `https://dexscreener.com/solana/${token.mint}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    window.open(axiomUrl(token), "_blank", "noopener,noreferrer");
   const change1h = token.change2h == null ? null : Number(token.change2h);
   const change24h = token.change24h == null ? null : Number(token.change24h);
 

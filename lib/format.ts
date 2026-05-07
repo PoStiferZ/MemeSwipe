@@ -1,3 +1,15 @@
+/**
+ * Build the Axiom chart URL for a token. Axiom routes by PumpSwap pool
+ * address (`/meme/<pool>?chain=sol`). When we don't have a pool address
+ * stored — older rows or manually-added tokens whose DexScreener pair
+ * wasn't found — we fall back to the mint, which still resolves on
+ * Axiom for most Pump.fun tokens.
+ */
+export function axiomUrl(token: { mint: string; poolAddress?: string | null }): string {
+  const id = token.poolAddress ?? token.mint;
+  return `https://axiom.trade/meme/${id}?chain=sol`;
+}
+
 export function formatUsd(n: number | string | null | undefined): string {
   if (n == null) return "—";
   const v = typeof n === "string" ? Number(n) : n;
