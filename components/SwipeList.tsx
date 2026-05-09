@@ -1,9 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { ApiToken } from "@/lib/types";
-import { axiomUrl, formatPercent, formatRelative, formatUsd } from "@/lib/format";
-import { isCanonicalImageUrl } from "@/lib/sources/helius";
+import { formatPercent, formatRelative, formatUsd, tokenChartUrl } from "@/lib/format";
 
 type Props = {
   tokens: ApiToken[];
@@ -13,7 +12,7 @@ type Props = {
   onPageChange: (page: number) => void;
   isFetching: boolean;
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
-  onRefreshBulk: (visible: ApiToken[]) => Promise<void>;
+  onRefresh: () => Promise<void> | void;
   sortDir: "desc" | "asc";
   onSortChange: (dir: "desc" | "asc") => void;
 };
@@ -26,28 +25,21 @@ export function SwipeList({
   onPageChange,
   isFetching,
   onSwipe,
-  onRefreshBulk,
+  onRefresh,
   sortDir,
   onSortChange,
 }: Props) {
   const [refreshing, setRefreshing] = useState(false);
 
-  // Counts rows whose `image_url` isn't in the canonical raw form — exactly
-  // the rows the refresh button will re-resolve.
-  const missingImages = useMemo(
-    () => tokens.filter((t) => !isCanonicalImageUrl(t.imageUrl)).length,
-    [tokens],
-  );
-
   const totalPages = totalRemaining
     ? Math.max(1, Math.ceil(totalRemaining / pageSize))
     : 1;
 
-  const refreshImages = async () => {
-    if (refreshing || tokens.length === 0) return;
+  const reloadFromDb = async () => {
+    if (refreshing) return;
     setRefreshing(true);
     try {
-      await onRefreshBulk(tokens);
+      await onRefresh();
     } finally {
       setRefreshing(false);
     }
@@ -88,18 +80,10 @@ export function SwipeList({
           Oldest first
         </button>
         <button
-          onClick={refreshImages}
-          disabled={refreshing || tokens.length === 0}
-          className={`ml-auto flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] disabled:opacity-40 ${
-            missingImages > 0
-              ? "border border-accent bg-accent/10 text-accent"
-              : "border border-line bg-card text-white/70"
-          }`}
-          title={
-            missingImages > 0
-              ? `${missingImages} missing — refresh all visible`
-              : "Refresh all visible images"
-          }
+          onClick={reloadFromDb}
+          disabled={refreshing}
+          className="ml-auto flex h-8 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-[11px] text-white/70 disabled:opacity-40"
+          title="Reload tokens from the database"
         >
           <svg
             viewBox="0 0 24 24"
@@ -114,11 +98,7 @@ export function SwipeList({
             <polyline points="1 20 1 14 7 14" />
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
           </svg>
-          {refreshing
-            ? "Refreshing…"
-            : missingImages > 0
-              ? `Refresh (${missingImages} missing)`
-              : "Refresh"}
+          {refreshing ? "Reloading…" : "Reload"}
         </button>
       </div>
 
@@ -245,7 +225,7 @@ function Row({
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
 }) {
   const onRowClick = () =>
-    window.open(axiomUrl(token), "_blank", "noopener,noreferrer");
+    window.open(tokenChartUrl(token), "_blank", "noopener,noreferrer");
   const change1h = token.change2h == null ? null : Number(token.change2h);
   const change24h = token.change24h == null ? null : Number(token.change24h);
 

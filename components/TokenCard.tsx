@@ -3,12 +3,12 @@
 import { useState } from "react";
 import type { ApiToken } from "@/lib/types";
 import {
-  axiomUrl,
   formatDuration,
   formatInt,
   formatPercent,
   formatRelative,
   formatUsd,
+  tokenChartUrl,
 } from "@/lib/format";
 
 const SOCIAL_ICONS: Record<string, string> = {
@@ -60,7 +60,7 @@ export function TokenCard({ token }: { token: ApiToken }) {
         )}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
         <a
-          href={axiomUrl(token)}
+          href={tokenChartUrl(token)}
           target="_blank"
           rel="noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -160,7 +160,7 @@ export function TokenCard({ token }: { token: ApiToken }) {
 
       <div className="px-3 pb-3 pt-2">
         <a
-          href={axiomUrl(token)}
+          href={tokenChartUrl(token)}
           target="_blank"
           rel="noreferrer"
           onClick={(e) => e.stopPropagation()}

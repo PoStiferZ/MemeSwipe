@@ -10,6 +10,23 @@ export function axiomUrl(token: { mint: string; poolAddress?: string | null }): 
   return `https://axiom.trade/meme/${id}?chain=sol`;
 }
 
+export function dexscreenerUrl(mint: string): string {
+  return `https://dexscreener.com/solana/${mint}`;
+}
+
+/**
+ * Pick where a card click should land. Touch devices get DexScreener
+ * (its mobile site is leagues better than Axiom's), desktops get Axiom
+ * (richer trading UI, faster). Detection uses the `pointer: coarse`
+ * media query — true on phones/tablets, false on mouse-driven desktops.
+ */
+export function tokenChartUrl(token: { mint: string; poolAddress?: string | null }): string {
+  if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) {
+    return dexscreenerUrl(token.mint);
+  }
+  return axiomUrl(token);
+}
+
 export function formatUsd(n: number | string | null | undefined): string {
   if (n == null) return "—";
   const v = typeof n === "string" ? Number(n) : n;

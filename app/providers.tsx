@@ -28,10 +28,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // If the user already has a manual wallet address saved, the auto-connect
+  // dance with Phantom/Solflare adds 1–3s of dead time on every page load
+  // for no benefit. Skip it in that case.
+  const [autoConnect] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return !window.localStorage.getItem("memeswipe.manual_wallet");
+    } catch {
+      return true;
+    }
+  });
+
   return (
     <QueryClientProvider client={client}>
       <ConnectionProvider endpoint={RPC_ENDPOINT}>
-        <WalletProvider wallets={wallets} autoConnect>
+        <WalletProvider wallets={wallets} autoConnect={autoConnect}>
           <WalletModalProvider>{children}</WalletModalProvider>
         </WalletProvider>
       </ConnectionProvider>

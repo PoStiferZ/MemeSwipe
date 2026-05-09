@@ -212,30 +212,15 @@ export function SwipeView() {
     [patchTokens],
   );
 
-  // Refresh: server inspects each `image_url` and only re-resolves the rows
-  // whose URL isn't in the canonical raw form (i.e. is null or still wrapped
-  // by the old Helius CDN code). Canonical rows are skipped, so the call is
-  // cheap on a page that's already healthy.
-  const refreshImagesBulk = useCallback(
-    async (visible: ApiToken[]) => {
-      if (visible.length === 0) return;
-      try {
-        const res = await fetch("/api/tokens/refresh-images", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mints: visible.map((t) => t.mint) }),
-        });
-        if (!res.ok) return;
-        const { tokens: updated } = (await res.json()) as {
-          tokens: ApiToken[];
-        };
-        patchTokens(updated);
-      } catch {
-        // silent
-      }
-    },
-    [patchTokens],
-  );
+  // Reload from DB. Just invalidates the active query so React Query
+  // refetches via the same /api/tokens flow — gives the user a fresh
+  // snapshot of swipeable tokens without any DexScreener/Helius work.
+  const reloadFromDb = useCallback(async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["tokens-list"], exact: false }),
+      qc.invalidateQueries({ queryKey: ["tokens"], exact: false }),
+    ]);
+  }, [qc]);
 
   const swipeMut = useMutation({
     mutationFn: ({ mint, action }: { mint: string; action: "like" | "dislike" }) => {
@@ -339,7 +324,7 @@ export function SwipeView() {
             onPageChange={setListPage}
             isFetching={isListFetching}
             onSwipe={handleSwipe}
-            onRefreshBulk={refreshImagesBulk}
+            onRefresh={reloadFromDb}
             sortDir={sortDir}
             onSortChange={switchSort}
           />

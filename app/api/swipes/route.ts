@@ -31,12 +31,34 @@ export async function POST(req: NextRequest) {
     .values({ wallet })
     .onConflictDoNothing({ target: schema.users.wallet });
 
+  // Snapshot the token's current mcap so the Liked view can show entry vs
+  // now. We only capture on `like` (no point on dislike), and only if the
+  // tokens row already has a mcap loaded — otherwise leave it NULL.
+  let mcapAtSwipeUsd: string | null = null;
+  if (action === "like") {
+    const [tok] = await db
+      .select({ mcapUsd: schema.tokens.mcapUsd })
+      .from(schema.tokens)
+      .where(eq(schema.tokens.mint, mint))
+      .limit(1);
+    mcapAtSwipeUsd = tok?.mcapUsd ?? null;
+  }
+
   await db
     .insert(schema.swipes)
-    .values({ wallet, mint, action })
+    .values({ wallet, mint, action, mcapAtSwipeUsd })
     .onConflictDoUpdate({
       target: [schema.swipes.wallet, schema.swipes.mint],
-      set: { action, createdAt: new Date() },
+      set: {
+        action,
+        createdAt: new Date(),
+        // Only overwrite the entry mcap when the new action is `like` and
+        // we resolved a value — otherwise keep the original snapshot
+        // (e.g. user dislikes then re-likes; we want their first-like price).
+        ...(action === "like" && mcapAtSwipeUsd != null
+          ? { mcapAtSwipeUsd }
+          : {}),
+      },
     });
 
   return NextResponse.json({ ok: true });
@@ -75,6 +97,7 @@ export async function GET(req: NextRequest) {
       mint: schema.swipes.mint,
       action: schema.swipes.action,
       createdAt: schema.swipes.createdAt,
+      mcapAtSwipeUsd: schema.swipes.mcapAtSwipeUsd,
       token: schema.tokens,
     })
     .from(schema.swipes)

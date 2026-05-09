@@ -114,12 +114,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const mcapAtSwipeUsd = row.mcapUsd ?? null;
   await db
     .insert(schema.swipes)
-    .values({ wallet, mint, action: "like" })
+    .values({ wallet, mint, action: "like", mcapAtSwipeUsd })
     .onConflictDoUpdate({
       target: [schema.swipes.wallet, schema.swipes.mint],
-      set: { action: "like", createdAt: new Date() },
+      set: {
+        action: "like",
+        createdAt: new Date(),
+        ...(mcapAtSwipeUsd != null ? { mcapAtSwipeUsd } : {}),
+      },
     });
 
   return NextResponse.json({ ok: true, token: row });

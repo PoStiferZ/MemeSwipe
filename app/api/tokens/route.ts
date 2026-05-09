@@ -2,13 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, asc, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db/client";
-import { fetchManyEnriched } from "@/lib/sources/dexscreener";
-import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STALE_MS = 30_000;
 // Hard quality bar — anything below this 24h volume is hidden from the swipe deck.
 const MIN_VOLUME_24H = 10_000;
 
@@ -24,35 +21,6 @@ const QuerySchema = z.object({
   excludeWallet: z.string().optional(),
   sort: z.enum(["asc", "desc"]).default("desc"),
 });
-
-type TokenRow = typeof schema.tokens.$inferSelect;
-
-async function refreshStaleBatch(rows: TokenRow[]): Promise<TokenRow[]> {
-  const now = new Date();
-  const stale = rows.filter(
-    (r) => now.getTime() - (r.lastSnapshotAt?.getTime() ?? 0) >= STALE_MS,
-  );
-  if (stale.length === 0) return rows;
-
-  let dexMap;
-  try {
-    dexMap = await fetchManyEnriched(stale.map((r) => r.mint));
-  } catch {
-    return rows;
-  }
-
-  const updated = new Map<string, TokenRow>();
-  await Promise.all(
-    stale.map(async (row) => {
-      const dex = dexMap.get(row.mint);
-      if (!dex) return;
-      const next = await applyDexPatch(row, dex, now);
-      if (next !== row) updated.set(row.mint, next);
-    }),
-  );
-
-  return rows.map((r) => updated.get(r.mint) ?? r);
-}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -120,37 +88,18 @@ export async function GET(req: NextRequest) {
     .from(schema.tokens)
     .where(where);
 
-  const refreshed = await refreshStaleBatch(rows);
-
-  // The refresh can mutate price/mcap/volume to fresh values that no longer
-  // match the user's filter (e.g. the DB had mcap=15k passing min=10k, then
-  // DexScreener returned 1.5k). Re-apply numeric filters here so the client
-  // never sees a row that violates the active filter.
-  const num = (v: string | null) => (v == null ? null : Number(v));
-  const filtered = refreshed.filter((r) => {
-    const mcap = num(r.mcapUsd);
-    const vol = num(r.volume24h);
-    if (vol != null && vol < MIN_VOLUME_24H) return false;
-    if (q.minMcap != null && (mcap == null || mcap < q.minMcap)) return false;
-    if (q.maxMcap != null && mcap != null && mcap > q.maxMcap) return false;
-    if (
-      q.minHolders != null &&
-      (r.holdersCount == null || r.holdersCount < q.minHolders)
-    )
-      return false;
-    return true;
-  });
-
-  // Cursor still derives from the (post-DB-filter, pre-numeric-recheck) row
-  // slice so we don't accidentally end pagination too early just because the
-  // refresh dropped a few items from the page.
+  // The bulk DexScreener refresh used to live here, blocking the response
+  // by 1–3 seconds and adding noticeable lag whenever the user reloaded the
+  // swipe page. The active card already gets a fresh quote via
+  // /api/tokens/[mint] when it surfaces in the deck, so we ditch the
+  // blocking pass and serve straight from SQL.
   const nextCursor =
-    refreshed.length === q.limit
-      ? refreshed[refreshed.length - 1].migratedAt?.toISOString()
+    rows.length === q.limit
+      ? rows[rows.length - 1].migratedAt?.toISOString()
       : null;
 
   return NextResponse.json({
-    tokens: filtered,
+    tokens: rows,
     nextCursor,
     totalRemaining,
   });

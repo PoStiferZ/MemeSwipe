@@ -98,6 +98,9 @@ export const swipes = pgTable(
       .notNull()
       .references(() => tokens.mint, { onDelete: "cascade" }),
     action: swipeAction("action").notNull(),
+    // Snapshot of the token's market cap at the moment the user swiped, so
+    // they can compare entry mcap to current mcap in the Liked view.
+    mcapAtSwipeUsd: numeric("mcap_at_swipe_usd", { precision: 20, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

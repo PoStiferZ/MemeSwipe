@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { WalletButton } from "./WalletButton";
 import { BottomNav } from "./BottomNav";
 import { useEffectiveWallet } from "@/lib/client/wallet";
-import { axiomUrl, formatPercent, formatUsd, formatRelative } from "@/lib/format";
+import { formatPercent, formatUsd, formatRelative, tokenChartUrl } from "@/lib/format";
 import type { ApiToken } from "@/lib/types";
 
 type SortKey = "recent" | "change1h" | "change24h" | "mcap";
@@ -20,6 +20,7 @@ type SwipeRow = {
   mint: string;
   action: "like" | "dislike";
   createdAt: string;
+  mcapAtSwipeUsd: string | null;
   token: ApiToken | null;
 };
 
@@ -155,6 +156,7 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
               mint: token.mint,
               action: "like" as const,
               createdAt: new Date().toISOString(),
+              mcapAtSwipeUsd: token.mcapUsd ?? null,
               token,
             },
             ...next,
@@ -421,7 +423,7 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
                   toggleSelect(row.mint);
                 } else if (row.token) {
                   window.open(
-                    axiomUrl(row.token),
+                    tokenChartUrl(row.token),
                     "_blank",
                     "noopener,noreferrer",
                   );
@@ -484,6 +486,12 @@ export function SwipesListView({ kind }: { kind: "liked" | "disliked" }) {
                       </PillBadge>
                       <ChangePill label="1h" value={row.token!.change2h} />
                       <ChangePill label="24h" value={row.token!.change24h} />
+                      {kind === "liked" ? (
+                        <EntryPill
+                          entry={row.mcapAtSwipeUsd}
+                          current={row.token!.mcapUsd}
+                        />
+                      ) : null}
                     </div>
                     <div className="mt-1 text-[10px] text-white/40">
                       {v.verb} {formatRelative(row.createdAt)}
@@ -575,6 +583,42 @@ function ChangePill({
     <PillBadge tone={tone}>
       <span className="opacity-60 mr-0.5">{label}</span>
       {formatPercent(n)}
+    </PillBadge>
+  );
+}
+
+/**
+ * Shows the user's entry mcap (the snapshot taken when they liked) and
+ * the % delta vs the current mcap. Only rendered for liked rows.
+ */
+function EntryPill({
+  entry,
+  current,
+}: {
+  entry: string | null;
+  current: string | null;
+}) {
+  if (entry == null) return null;
+  const entryN = Number(entry);
+  const currentN = current == null ? null : Number(current);
+  const deltaPct =
+    currentN != null && entryN > 0 ? ((currentN - entryN) / entryN) * 100 : null;
+  const tone: "up" | "down" | "neutral" =
+    deltaPct == null || deltaPct === 0
+      ? "neutral"
+      : deltaPct > 0
+        ? "up"
+        : "down";
+  return (
+    <PillBadge tone={tone}>
+      <span className="opacity-60 mr-0.5">entry</span>
+      {formatUsd(entryN)}
+      {deltaPct != null ? (
+        <span className="ml-1 opacity-80">
+          ({deltaPct > 0 ? "+" : ""}
+          {deltaPct.toFixed(deltaPct >= 100 || deltaPct <= -100 ? 0 : 1)}%)
+        </span>
+      ) : null}
     </PillBadge>
   );
 }
