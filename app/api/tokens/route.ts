@@ -15,15 +15,11 @@ const MIN_VOLUME_24H = 10_000;
 // refreshes; short enough that mcap/volume can't drift far, long enough that
 // a flurry of consecutive page-loads doesn't re-hit DexScreener pointlessly.
 const STALE_MS = 30_000;
-// Internal overfetch factor: pull 2× q.limit rows from SQL per iteration so
-// that the post-refresh filter has room to drop tokens whose mcap/volume
-// moved out of range without leaving the user with <30 cards on screen.
+// Pull 2× q.limit rows from SQL so the post-refresh filter has room to
+// drop a few tokens (whose mcap/volume moved out of range) without
+// leaving the deck with <30 cards. Anything below q.limit after filtering
+// is backfilled by the deck's auto-prefetch in SwipeView.
 const OVERFETCH_FACTOR = 2;
-// Hard cap on iterations of the (fetch → refresh → filter) loop. With
-// OVERFETCH_FACTOR=2 and q.limit=30, that's up to 180 candidate rows pulled
-// from SQL — enough to fill the deck even on heavily-filtered queries
-// without a runaway loop.
-const MAX_ITERATIONS = 3;
 
 const QuerySchema = z.object({
   minMcap: z.coerce.number().nonnegative().optional(),
@@ -152,63 +148,46 @@ export async function GET(req: NextRequest) {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // Cursor-mode (swipe deck): overfetch + (refresh + filter) loop until
-  // we have q.limit rows that still pass the user's filters AFTER the
-  // DexScreener refresh — so the user never sees a card with a stale
-  // mcap that no longer matches what they filtered for.
+  // Cursor-mode (swipe deck). Behavior mirrors page-mode: a single SQL
+  // pull (with a small overfetch buffer so the post-refresh filter has
+  // room to drop a few rows), then DexScreener-refresh + numeric filter
+  // re-application. The deck's existing auto-prefetch hook in SwipeView
+  // pulls the next batch when the visible count gets low, so we don't
+  // need a server-side loop to "guarantee 30 fresh per response" — that
+  // loop turned out to be brittle (one bad iteration starved the whole
+  // deck) for negligible UX gain over auto-prefetch.
   // ─────────────────────────────────────────────────────────────────────
-  let lastCursor: Date | null = q.cursor ? new Date(q.cursor) : null;
-  let dbExhausted = false;
-  const accumulated: TokenRow[] = [];
-
-  for (let i = 0; i < MAX_ITERATIONS && accumulated.length < q.limit; i++) {
-    const conditions = [...baseConditions];
-    if (lastCursor) {
-      conditions.push(
-        q.sort === "asc"
-          ? sql`${schema.tokens.migratedAt} > ${lastCursor}`
-          : sql`${schema.tokens.migratedAt} < ${lastCursor}`,
-      );
-    }
-
-    const fetchLimit = q.limit * OVERFETCH_FACTOR;
-    const fetched = await db
-      .select()
-      .from(schema.tokens)
-      .where(and(...conditions))
-      .orderBy(orderBy)
-      .limit(fetchLimit);
-
-    if (fetched.length === 0) {
-      dbExhausted = true;
-      break;
-    }
-    // Advance the cursor *based on what we read from the DB*, not what
-    // passed the post-refresh filter — otherwise a single iteration could
-    // re-fetch the same junk rows forever.
-    lastCursor = fetched[fetched.length - 1].migratedAt ?? lastCursor;
-    if (fetched.length < fetchLimit) dbExhausted = true;
-
-    const refreshed = await refreshStaleRows(fetched, now);
-    for (const r of refreshed) {
-      if (passesNumericFilters(r, q)) accumulated.push(r);
-    }
+  const conditions = [...baseConditions];
+  if (q.cursor) {
+    const cursorDate = new Date(q.cursor);
+    conditions.push(
+      q.sort === "asc"
+        ? sql`${schema.tokens.migratedAt} > ${cursorDate}`
+        : sql`${schema.tokens.migratedAt} < ${cursorDate}`,
+    );
   }
 
-  const final = accumulated.slice(0, q.limit);
-  // If we still have leftovers we didn't return, the *next* request should
-  // start where the LAST RETURNED row left off; otherwise (we ran out or
-  // hit the iteration cap), resume from `lastCursor` so the deck can keep
-  // pulling more.
-  const nextCursor = dbExhausted && accumulated.length <= q.limit
-    ? null
-    : final.length > 0
-      ? (final[final.length - 1].migratedAt?.toISOString() ?? null)
-      : (lastCursor?.toISOString() ?? null);
+  const fetchLimit = q.limit * OVERFETCH_FACTOR;
+  const fetched = await db
+    .select()
+    .from(schema.tokens)
+    .where(and(...conditions))
+    .orderBy(orderBy)
+    .limit(fetchLimit);
 
-  // `totalRemaining` is computed pre-refresh so it stays cheap. It's an
-  // upper bound — the post-refresh filter may drop a few — but that's
-  // fine, the deck only uses it as a "how many more roughly" indicator.
+  const refreshed = await refreshStaleRows(fetched, now);
+  const filtered = refreshed.filter((r) => passesNumericFilters(r, q));
+  const final = filtered.slice(0, q.limit);
+
+  // `nextCursor` advances from the last row we **read** from the DB, not
+  // the last row we returned — otherwise a request that filtered most
+  // rows out would leave a gap. If we read fewer than the fetch limit,
+  // the DB is exhausted for this filter set → no more pages.
+  const nextCursor =
+    fetched.length < fetchLimit
+      ? null
+      : (fetched[fetched.length - 1].migratedAt?.toISOString() ?? null);
+
   const [{ count: totalRemaining = 0 } = { count: 0 }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.tokens)
