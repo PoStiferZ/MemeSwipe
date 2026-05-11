@@ -109,7 +109,7 @@ export function SwipeList({
         would just blank the page during the next paint.
       */}
       {tokens.length === 0 && isFetching ? (
-        <div className="py-8 text-center text-xs text-white/40">Loading…</div>
+        <ListSkeleton />
       ) : (
         <ul className="space-y-2">
           {tokens.map((t) => (
@@ -376,5 +376,33 @@ function ChangePill({
       <span className="mr-0.5 opacity-60">{label}</span>
       {formatPercent(value)}
     </Pill>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <ul className="space-y-2">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <li
+          key={i}
+          className="flex items-center gap-3 rounded-2xl border border-line bg-card p-3"
+        >
+          <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-white/5" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="h-4 w-1/3 animate-pulse rounded bg-white/10" />
+            <div className="flex gap-1">
+              <div className="h-4 w-14 animate-pulse rounded-full bg-white/5" />
+              <div className="h-4 w-12 animate-pulse rounded-full bg-white/5" />
+              <div className="h-4 w-12 animate-pulse rounded-full bg-white/5" />
+            </div>
+            <div className="h-3 w-1/4 animate-pulse rounded bg-white/5" />
+          </div>
+          <div className="flex shrink-0 flex-col gap-1.5">
+            <div className="h-9 w-9 animate-pulse rounded-full bg-like/15" />
+            <div className="h-9 w-9 animate-pulse rounded-full bg-dislike/15" />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

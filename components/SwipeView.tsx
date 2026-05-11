@@ -301,10 +301,7 @@ export function SwipeView() {
             Plus de tokens pour le moment.
           </div>
         ) : viewMode === "deck" && tokens.length === 0 && isFetching ? (
-          <div className="mt-20 flex flex-col items-center gap-3 text-white/50">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
-            Loading…
-          </div>
+          <DeckSkeleton />
         ) : viewMode === "deck" ? (
           <SwipeDeck
             tokens={tokens}
@@ -383,6 +380,34 @@ function ViewToggle({
           </svg>
           List
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Placeholder that mirrors the real card layout while the first /api/tokens
+ * response is in flight. Shimmering with the `animate-pulse` utility keeps
+ * the perceived load time short — Proposition A's 500-800ms refresh round
+ * trip would look like dead time without it.
+ */
+function DeckSkeleton() {
+  return (
+    <div className="mt-2 flex flex-col gap-4">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-3xl border border-line bg-card">
+        <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-white/5 via-white/10 to-white/5" />
+        <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-2">
+          <div className="h-5 w-2/3 animate-pulse rounded bg-white/10" />
+          <div className="flex gap-1.5">
+            <div className="h-5 w-16 animate-pulse rounded-full bg-white/10" />
+            <div className="h-5 w-14 animate-pulse rounded-full bg-white/10" />
+            <div className="h-5 w-14 animate-pulse rounded-full bg-white/10" />
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-center gap-6">
+        <div className="h-14 w-14 animate-pulse rounded-full bg-dislike/20" />
+        <div className="h-14 w-14 animate-pulse rounded-full bg-like/20" />
       </div>
     </div>
   );
