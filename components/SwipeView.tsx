@@ -323,7 +323,10 @@ export function SwipeView() {
         }
       />
 
-      <ViewToggle mode={viewMode} onChange={switchView} />
+      <div className="flex items-center gap-2 px-4 pt-3">
+        <ViewToggle mode={viewMode} onChange={switchView} />
+        <ReloadButton onReload={reloadFromDb} />
+      </div>
 
       <div className="flex-1 px-4 pt-3 pb-4">
         {viewMode === "deck" && tokens.length === 0 && !hasNextPage && !isFetching ? (
@@ -351,7 +354,6 @@ export function SwipeView() {
             onPageChange={setListPage}
             isFetching={isListFetching}
             onSwipe={handleSwipe}
-            onRefresh={reloadFromDb}
             sortDir={sortDir}
             onSortChange={switchSort}
           />
@@ -380,38 +382,78 @@ function ViewToggle({
   onChange: (m: "deck" | "list") => void;
 }) {
   return (
-    <div className="px-4 pt-3">
-      <div className="inline-flex rounded-full border border-line bg-card p-0.5 text-xs">
-        <button
-          onClick={() => onChange("deck")}
-          className={`flex items-center gap-1 rounded-full px-3 py-1 ${
-            mode === "deck" ? "bg-accent font-semibold text-black" : "text-white/60"
-          }`}
-        >
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="6" y="4" width="12" height="14" rx="2" />
-            <rect x="3" y="7" width="12" height="14" rx="2" opacity="0.5" />
-          </svg>
-          Deck
-        </button>
-        <button
-          onClick={() => onChange("list")}
-          className={`flex items-center gap-1 rounded-full px-3 py-1 ${
-            mode === "list" ? "bg-accent font-semibold text-black" : "text-white/60"
-          }`}
-        >
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
-          </svg>
-          List
-        </button>
-      </div>
+    <div className="inline-flex rounded-full border border-line bg-card p-0.5 text-xs">
+      <button
+        onClick={() => onChange("deck")}
+        className={`flex items-center gap-1 rounded-full px-3 py-1 ${
+          mode === "deck" ? "bg-accent font-semibold text-black" : "text-white/60"
+        }`}
+      >
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="6" y="4" width="12" height="14" rx="2" />
+          <rect x="3" y="7" width="12" height="14" rx="2" opacity="0.5" />
+        </svg>
+        Deck
+      </button>
+      <button
+        onClick={() => onChange("list")}
+        className={`flex items-center gap-1 rounded-full px-3 py-1 ${
+          mode === "list" ? "bg-accent font-semibold text-black" : "text-white/60"
+        }`}
+      >
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" />
+          <line x1="3" y1="12" x2="3.01" y2="12" />
+          <line x1="3" y1="18" x2="3.01" y2="18" />
+        </svg>
+        List
+      </button>
     </div>
+  );
+}
+
+/**
+ * Single reload trigger that lives next to the ViewToggle so it's visible
+ * in both deck and list mode — saves the user from having to switch to
+ * the list to pull a fresh batch from the DB.
+ */
+function ReloadButton({ onReload }: { onReload: () => Promise<void> | void }) {
+  const [busy, setBusy] = useState(false);
+  const click = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onReload();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      onClick={click}
+      disabled={busy}
+      title="Reload tokens from the database"
+      aria-label="Reload tokens"
+      className="ml-auto flex h-8 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-[11px] text-white/70 disabled:opacity-40"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="23 4 23 10 17 10" />
+        <polyline points="1 20 1 14 7 14" />
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+      </svg>
+      {busy ? "Reloading…" : "Reload"}
+    </button>
   );
 }
 

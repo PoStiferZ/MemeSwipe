@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { ApiToken } from "@/lib/types";
 import { formatPercent, formatRelative, formatUsd, tokenChartUrl } from "@/lib/format";
 
@@ -12,7 +11,6 @@ type Props = {
   onPageChange: (page: number) => void;
   isFetching: boolean;
   onSwipe: (token: ApiToken, action: "like" | "dislike") => void;
-  onRefresh: () => Promise<void> | void;
   sortDir: "desc" | "asc";
   onSortChange: (dir: "desc" | "asc") => void;
 };
@@ -25,25 +23,12 @@ export function SwipeList({
   onPageChange,
   isFetching,
   onSwipe,
-  onRefresh,
   sortDir,
   onSortChange,
 }: Props) {
-  const [refreshing, setRefreshing] = useState(false);
-
   const totalPages = totalRemaining
     ? Math.max(1, Math.ceil(totalRemaining / pageSize))
     : 1;
-
-  const reloadFromDb = async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try {
-      await onRefresh();
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   if (tokens.length === 0 && !isFetching) {
     return (
@@ -78,27 +63,6 @@ export function SwipeList({
           }`}
         >
           Oldest first
-        </button>
-        <button
-          onClick={reloadFromDb}
-          disabled={refreshing}
-          className="ml-auto flex h-8 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-[11px] text-white/70 disabled:opacity-40"
-          title="Reload tokens from the database"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="23 4 23 10 17 10" />
-            <polyline points="1 20 1 14 7 14" />
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-          </svg>
-          {refreshing ? "Reloading…" : "Reload"}
         </button>
       </div>
 
