@@ -25,7 +25,9 @@ async function claimTelegramAlert(mint: string): Promise<boolean> {
       AND telegram_alerted_at IS NULL
     RETURNING mint
   `);
-  return (result.rowCount ?? 0) > 0;
+  // postgres-js returns a `RowList` (array-like); .length is the number of
+  // rows that matched the UPDATE … WHERE … RETURNING clause.
+  return result.length > 0;
 }
 
 // Strict liquidity gate: any migration with a *known* liquidity below
