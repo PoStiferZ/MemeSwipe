@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Filters } from "@/lib/types";
+import { DEFAULT_FILTERS, type Filters } from "@/lib/types";
 import { WalletButton } from "./WalletButton";
 import { formatInt } from "@/lib/format";
 
@@ -40,6 +40,24 @@ const DAYS_OPTIONS: { value: number; label: string }[] = [
   { value: 14, label: "14d" },
   { value: 30, label: "30d" },
 ];
+const VOLUME_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "Any" },
+  { value: 10_000, label: "$10k" },
+  { value: 20_000, label: "$20k" },
+  { value: 50_000, label: "$50k" },
+  { value: 100_000, label: "$100k" },
+  { value: 250_000, label: "$250k" },
+  { value: 1_000_000, label: "$1M" },
+];
+const LIQUIDITY_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "Any" },
+  { value: 5_000, label: "$5k" },
+  { value: 10_000, label: "$10k" },
+  { value: 25_000, label: "$25k" },
+  { value: 50_000, label: "$50k" },
+  { value: 100_000, label: "$100k" },
+  { value: 250_000, label: "$250k" },
+];
 
 export function FilterBar({
   filters,
@@ -55,6 +73,8 @@ export function FilterBar({
     (filters.minMcap > 0 ? 1 : 0) +
     (filters.maxMcap > 0 ? 1 : 0) +
     (filters.minHolders > 0 ? 1 : 0) +
+    (filters.minVolume > 0 ? 1 : 0) +
+    (filters.minLiquidity > 0 ? 1 : 0) +
     (filters.sinceDays > 0 ? 1 : 0);
 
   return (
@@ -123,6 +143,18 @@ export function FilterBar({
             }
           />
           <PillRow
+            label="Min 24h volume"
+            value={filters.minVolume}
+            options={VOLUME_OPTIONS}
+            onChange={(v) => onChange({ ...filters, minVolume: v })}
+          />
+          <PillRow
+            label="Min liquidity"
+            value={filters.minLiquidity}
+            options={LIQUIDITY_OPTIONS}
+            onChange={(v) => onChange({ ...filters, minLiquidity: v })}
+          />
+          <PillRow
             label="Min holders"
             value={filters.minHolders}
             options={HOLDERS_OPTIONS}
@@ -134,7 +166,14 @@ export function FilterBar({
             options={DAYS_OPTIONS}
             onChange={(v) => onChange({ ...filters, sinceDays: v })}
           />
-          {activeFilters > 0 ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => onChange(DEFAULT_FILTERS)}
+              className="flex-1 rounded-full border border-line bg-card py-2 text-xs text-white/70"
+              title="Reset filters to the recommended defaults"
+            >
+              Reset to defaults
+            </button>
             <button
               onClick={() =>
                 onChange({
@@ -142,13 +181,16 @@ export function FilterBar({
                   maxMcap: 0,
                   minHolders: 0,
                   sinceDays: 0,
+                  minVolume: 0,
+                  minLiquidity: 0,
                 })
               }
-              className="w-full rounded-full border border-line bg-card py-2 text-xs text-white/70"
+              className="flex-1 rounded-full border border-line bg-card py-2 text-xs text-white/70"
+              title="Remove every filter"
             >
-              Clear all filters
+              Clear all
             </button>
-          ) : null}
+          </div>
         </div>
       ) : null}
     </header>

@@ -37,6 +37,8 @@ export type Filters = {
   maxMcap: number; // 0 = no upper bound
   minHolders: number;
   sinceDays: number;
+  minVolume: number; // 0 = no floor
+  minLiquidity: number; // 0 = no floor
 };
 
 export const DEFAULT_FILTERS: Filters = {
@@ -44,4 +46,6 @@ export const DEFAULT_FILTERS: Filters = {
   maxMcap: 0,
   minHolders: 0,
   sinceDays: 0,
+  minVolume: 20_000,
+  minLiquidity: 10_000,
 };

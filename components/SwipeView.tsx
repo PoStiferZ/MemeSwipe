@@ -23,12 +23,34 @@ function loadFilters(): Filters {
     const raw = window.localStorage.getItem(FILTERS_KEY);
     if (!raw) return DEFAULT_FILTERS;
     const parsed = JSON.parse(raw) as Partial<Filters>;
+    // Fall back to DEFAULT_FILTERS for any field the stored payload is
+    // missing — that way existing users automatically pick up newly-added
+    // filters (e.g. minVolume / minLiquidity) with their default values.
     return {
-      minMcap: typeof parsed.minMcap === "number" ? parsed.minMcap : 0,
-      maxMcap: typeof parsed.maxMcap === "number" ? parsed.maxMcap : 0,
+      minMcap:
+        typeof parsed.minMcap === "number"
+          ? parsed.minMcap
+          : DEFAULT_FILTERS.minMcap,
+      maxMcap:
+        typeof parsed.maxMcap === "number"
+          ? parsed.maxMcap
+          : DEFAULT_FILTERS.maxMcap,
       minHolders:
-        typeof parsed.minHolders === "number" ? parsed.minHolders : 0,
-      sinceDays: typeof parsed.sinceDays === "number" ? parsed.sinceDays : 0,
+        typeof parsed.minHolders === "number"
+          ? parsed.minHolders
+          : DEFAULT_FILTERS.minHolders,
+      sinceDays:
+        typeof parsed.sinceDays === "number"
+          ? parsed.sinceDays
+          : DEFAULT_FILTERS.sinceDays,
+      minVolume:
+        typeof parsed.minVolume === "number"
+          ? parsed.minVolume
+          : DEFAULT_FILTERS.minVolume,
+      minLiquidity:
+        typeof parsed.minLiquidity === "number"
+          ? parsed.minLiquidity
+          : DEFAULT_FILTERS.minLiquidity,
     };
   } catch {
     return DEFAULT_FILTERS;
@@ -101,6 +123,10 @@ export function SwipeView() {
       if (filters.minMcap > 0) params.set("minMcap", String(filters.minMcap));
       if (filters.maxMcap > 0) params.set("maxMcap", String(filters.maxMcap));
       if (filters.minHolders > 0) params.set("minHolders", String(filters.minHolders));
+      if (filters.minVolume > 0)
+        params.set("minVolume", String(filters.minVolume));
+      if (filters.minLiquidity > 0)
+        params.set("minLiquidity", String(filters.minLiquidity));
       if (filters.sinceDays > 0) {
         params.set(
           "since",
@@ -144,6 +170,10 @@ export function SwipeView() {
       if (filters.maxMcap > 0) params.set("maxMcap", String(filters.maxMcap));
       if (filters.minHolders > 0)
         params.set("minHolders", String(filters.minHolders));
+      if (filters.minVolume > 0)
+        params.set("minVolume", String(filters.minVolume));
+      if (filters.minLiquidity > 0)
+        params.set("minLiquidity", String(filters.minLiquidity));
       if (filters.sinceDays > 0) {
         params.set(
           "since",

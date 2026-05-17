@@ -8,8 +8,10 @@ import { applyDexPatch } from "@/lib/indexer/applyDexPatch";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Hard quality bar — anything below this 24h volume is hidden from the swipe deck.
-const MIN_VOLUME_24H = 10_000;
+// Hard quality bar — anything below this 24h volume is hidden from the swipe
+// deck regardless of the user filter, so the user can never accidentally
+// dial below the floor and get spammed with junk pools.
+const MIN_VOLUME_24H_FLOOR = 10_000;
 // Any token whose last DexScreener snapshot is older than this is re-fetched
 // before we serve it. 30s is the same staleness window we use for liked-list
 // refreshes; short enough that mcap/volume can't drift far, long enough that
@@ -25,6 +27,8 @@ const QuerySchema = z.object({
   minMcap: z.coerce.number().nonnegative().optional(),
   maxMcap: z.coerce.number().nonnegative().optional(),
   minHolders: z.coerce.number().int().nonnegative().optional(),
+  minVolume: z.coerce.number().nonnegative().optional(),
+  minLiquidity: z.coerce.number().nonnegative().optional(),
   since: z.coerce.number().int().optional(),
   until: z.coerce.number().int().optional(),
   cursor: z.string().optional(),
@@ -66,9 +70,14 @@ function passesNumericFilters(r: TokenRow, q: Query): boolean {
   const num = (v: string | null) => (v == null ? null : Number(v));
   const mcap = num(r.mcapUsd);
   const vol = num(r.volume24h);
-  // Re-apply the volume floor on fresh values — a token that had vol=12k in
-  // the DB might be down to 2k now.
-  if (vol != null && vol < MIN_VOLUME_24H) return false;
+  const liq = num(r.liquidityUsd);
+  // Effective volume floor: max of the system floor and the user filter.
+  const volFloor = Math.max(MIN_VOLUME_24H_FLOOR, q.minVolume ?? 0);
+  // Re-apply on fresh values: a token that had vol=25k in the DB might be
+  // down to 2k now after the DexScreener refresh.
+  if (vol != null && vol < volFloor) return false;
+  if (q.minLiquidity != null && liq != null && liq < q.minLiquidity)
+    return false;
   if (q.minMcap != null && (mcap == null || mcap < q.minMcap)) return false;
   if (q.maxMcap != null && mcap != null && mcap > q.maxMcap) return false;
   if (
@@ -87,9 +96,17 @@ export async function GET(req: NextRequest) {
   }
   const q = parsed.data;
 
+  // SQL pre-filter on volume: max of the system floor and the user filter.
+  // NULL volume passes (token just migrated, DexScreener not indexed yet) —
+  // the post-refresh pass will catch them once they have a real value.
+  const volFloor = Math.max(MIN_VOLUME_24H_FLOOR, q.minVolume ?? 0);
   const baseConditions = [
-    sql`(${schema.tokens.volume24h} IS NULL OR ${schema.tokens.volume24h} >= ${MIN_VOLUME_24H})`,
+    sql`(${schema.tokens.volume24h} IS NULL OR ${schema.tokens.volume24h} >= ${volFloor})`,
   ];
+  if (q.minLiquidity != null)
+    baseConditions.push(
+      sql`(${schema.tokens.liquidityUsd} IS NULL OR ${schema.tokens.liquidityUsd} >= ${q.minLiquidity})`,
+    );
   if (q.minMcap != null)
     baseConditions.push(sql`${schema.tokens.mcapUsd} >= ${q.minMcap}`);
   if (q.maxMcap != null)
