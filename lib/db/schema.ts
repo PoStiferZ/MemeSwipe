@@ -61,6 +61,11 @@ export const tokens = pgTable(
       .notNull()
       .defaultNow(),
     lastSnapshotAt: timestamp("last_snapshot_at", { withTimezone: true }),
+    // Set the first time we push a Telegram alert for this mint. Used as
+    // an atomic "claim" — only the request that flips this from NULL to
+    // a timestamp gets to send the alert, so duplicate webhook fires
+    // never produce duplicate messages.
+    telegramAlertedAt: timestamp("telegram_alerted_at", { withTimezone: true }),
   },
   (t) => ({
     migratedIdx: index("tokens_migrated_at_idx").on(t.migratedAt),

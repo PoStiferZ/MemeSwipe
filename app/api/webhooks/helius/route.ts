@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { db, schema } from "@/lib/db/client";
 import { detectFromWebhookEvent } from "@/lib/sources/pumpswap";
 import {
   backfillSlowFields,
@@ -7,6 +9,24 @@ import {
   upsertToken,
 } from "@/lib/indexer/enrichToken";
 import { sendMigrationAlert } from "@/lib/notifications/telegram";
+
+/**
+ * Atomically claim the right to fire a Telegram alert for a mint.
+ * Flips `telegram_alerted_at` from NULL → now() in a single SQL
+ * statement and returns whether THIS request was the one that won
+ * the flip. Subsequent webhook fires (Helius retries, duplicate
+ * events in the same batch) get `false` and skip the alert.
+ */
+async function claimTelegramAlert(mint: string): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE ${schema.tokens}
+    SET telegram_alerted_at = now()
+    WHERE ${schema.tokens.mint} = ${mint}
+      AND telegram_alerted_at IS NULL
+    RETURNING mint
+  `);
+  return (result.rowCount ?? 0) > 0;
+}
 
 // Strict liquidity gate: any migration with a *known* liquidity below
 // this threshold is dropped before we even insert it. Tokens whose
@@ -102,11 +122,17 @@ export async function POST(req: NextRequest) {
       }
       console.log("[webhook] upserted token:", m.mint);
 
-      // Fire-and-forget Telegram alert. Failures are swallowed inside
-      // sendMigrationAlert; this `.catch` is a belt-and-suspenders guard.
-      void sendMigrationAlert(row).catch((err) =>
-        console.warn("[telegram] alert dispatch failed", err),
-      );
+      // Only send a Telegram alert if we won the atomic claim — otherwise
+      // a previous webhook (or another event in this same batch) already
+      // sent it. This guarantees one alert per CA, lifetime.
+      const claimed = await claimTelegramAlert(m.mint);
+      if (claimed) {
+        void sendMigrationAlert(row).catch((err) =>
+          console.warn("[telegram] alert dispatch failed", err),
+        );
+      } else {
+        console.log("[telegram] alert already sent for", m.mint);
+      }
     } catch (err) {
       console.error("[webhook] enrich failed", m.mint, err);
     }
