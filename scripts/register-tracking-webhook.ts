@@ -50,6 +50,14 @@ async function main() {
     `[register-tracking-webhook] target URL: ${webhookURL} — seeding with ${addresses.length} addresses`,
   );
 
+  if (addresses.length === 0) {
+    console.log(
+      "[register-tracking-webhook] no tracked wallets in DB — skipping webhook creation. " +
+        "The webhook will be created automatically the first time you add a wallet from the UI.",
+    );
+    return;
+  }
+
   const payload = {
     webhookURL,
     accountAddresses: addresses,

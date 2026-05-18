@@ -49,14 +49,16 @@ async function resolveTrackingWebhookId(): Promise<string | null> {
 }
 
 /**
- * Recompute the union of all tracked wallet addresses and PUT the
- * Helius webhook with that list. Throws on hard failures (missing
- * webhook, address cap exceeded) so the caller can surface it to the
- * user.
+ * Recompute the union of all tracked wallet addresses and sync the
+ * Helius webhook. Lazily CREATEs the webhook on the first add (Helius
+ * requires ≥1 address at creation time), then PUTs on subsequent
+ * changes. When the last wallet is removed, the webhook is DELETEd —
+ * cleaner than leaving a phantom address behind.
  */
 export async function syncTrackingWebhookAddresses(): Promise<{
-  webhookId: string;
+  webhookId: string | null;
   addressCount: number;
+  action: "created" | "updated" | "deleted" | "noop";
 }> {
   const rows = await db
     .selectDistinct({ wallet: schema.trackedWallets.trackedWallet })
@@ -69,41 +71,73 @@ export async function syncTrackingWebhookAddresses(): Promise<{
     );
   }
 
-  const webhookId = await resolveTrackingWebhookId();
-  if (!webhookId) {
-    throw new Error(
-      `Tracking webhook not found. Run \`pnpm tsx --env-file=.env.local scripts/register-tracking-webhook.ts\` once to create it.`,
-    );
-  }
-
   const auth = process.env.HELIUS_WEBHOOK_AUTH_TOKEN;
   if (!auth) throw new Error("HELIUS_WEBHOOK_AUTH_TOKEN is not set");
-
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is not set");
 
+  const webhookURL = `${appUrl.replace(/\/$/, "")}${TRACKING_URL_SUFFIX}`;
+  const existingId = await resolveTrackingWebhookId();
+
+  // Case 1: nothing to watch.
+  if (addresses.length === 0) {
+    if (!existingId) return { webhookId: null, addressCount: 0, action: "noop" };
+    const res = await fetch(
+      `${HELIUS_API}/${existingId}?api-key=${apiKey()}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok && res.status !== 404) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`helius DELETE webhook ${res.status}: ${text.slice(0, 200)}`);
+    }
+    cachedWebhookId = null;
+    return { webhookId: null, addressCount: 0, action: "deleted" };
+  }
+
+  // Case 2: addresses exist — create or update.
   const payload = {
-    webhookURL: `${appUrl.replace(/\/$/, "")}${TRACKING_URL_SUFFIX}`,
+    webhookURL,
     accountAddresses: addresses,
     transactionTypes: ["SWAP"],
     webhookType: "enhanced",
     authHeader: auth,
   };
 
-  const res = await fetch(`${HELIUS_API}/${webhookId}?api-key=${apiKey()}`, {
+  if (!existingId) {
+    const res = await fetch(`${HELIUS_API}?api-key=${apiKey()}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`helius POST webhook ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const created = (await res.json()) as { webhookID: string };
+    cachedWebhookId = created.webhookID;
+    return {
+      webhookId: created.webhookID,
+      addressCount: addresses.length,
+      action: "created",
+    };
+  }
+
+  const res = await fetch(`${HELIUS_API}/${existingId}?api-key=${apiKey()}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    // Invalidate the cache — maybe the webhook was deleted from the
-    // Helius dashboard out-of-band.
+    // Maybe the webhook was deleted from the Helius dashboard out-of-band.
     cachedWebhookId = null;
     throw new Error(`helius PUT webhook ${res.status}: ${text.slice(0, 200)}`);
   }
-
-  return { webhookId, addressCount: addresses.length };
+  return {
+    webhookId: existingId,
+    addressCount: addresses.length,
+    action: "updated",
+  };
 }
 
 /**
