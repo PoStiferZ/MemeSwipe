@@ -97,7 +97,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const detected = events
+  // Source gate: Helius emits CREATE_POOL for several Pump.fun-related
+  // programs (PUMP_FUN = the bonding-curve migration we care about,
+  // PUMP_AMM = subsequent pool-management events on PumpSwap). We only
+  // want the first one — everything else is dropped before any DB write
+  // or Telegram alert.
+  const pumpFunEvents = events.filter((e) => e.source === "PUMP_FUN");
+  const skipped = events.length - pumpFunEvents.length;
+  if (skipped > 0) {
+    console.log(
+      `[webhook] skipped ${skipped} non-PUMP_FUN events`,
+      [...new Set(events.filter((e) => e.source !== "PUMP_FUN").map((e) => e.source))],
+    );
+  }
+
+  const detected = pumpFunEvents
     .map((e) => detectFromWebhookEvent(e))
     .filter((m): m is NonNullable<typeof m> => Boolean(m));
 
