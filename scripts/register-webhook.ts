@@ -10,6 +10,8 @@
  * Usage: pnpm register-webhook
  */
 
+export {};
+
 const PUMPFUN_V1_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
 async function main() {

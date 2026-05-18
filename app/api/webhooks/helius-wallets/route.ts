@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db/client";
 import { fetchManyEnriched } from "@/lib/sources/dexscreener";
 import {
@@ -84,20 +84,28 @@ export async function POST(req: NextRequest) {
         ? trade.tokenAmount * priceUsd
         : null;
 
-    const result = await db.execute(sql`
-      INSERT INTO ${schema.walletTrades} (
-        signature, wallet, direction, mint, dex_source,
-        token_amount, sol_amount, usd_value, price_usd,
-        block_time, slot
-      )
-      VALUES (
-        ${trade.signature}, ${trade.wallet}, ${trade.direction}, ${trade.mint}, ${trade.dexSource},
-        ${trade.tokenAmount}, ${trade.solAmount}, ${usdValue}, ${priceUsd},
-        ${trade.blockTime}, ${trade.slot}
-      )
-      ON CONFLICT (signature, wallet) DO NOTHING
-      RETURNING id
-    `);
+    // Use Drizzle's typed insert so Date / number / null coercion to
+    // timestamptz / numeric goes through the proper serializers — the
+    // raw `sql\`\`` path crashes on `Date` (postgres-js wants a string).
+    const result = await db
+      .insert(schema.walletTrades)
+      .values({
+        signature: trade.signature,
+        wallet: trade.wallet,
+        direction: trade.direction,
+        mint: trade.mint,
+        dexSource: trade.dexSource,
+        tokenAmount: trade.tokenAmount != null ? String(trade.tokenAmount) : null,
+        solAmount: trade.solAmount != null ? String(trade.solAmount) : null,
+        usdValue: usdValue != null ? usdValue.toFixed(2) : null,
+        priceUsd: priceUsd != null ? String(priceUsd) : null,
+        blockTime: trade.blockTime,
+        slot: trade.slot,
+      })
+      .onConflictDoNothing({
+        target: [schema.walletTrades.signature, schema.walletTrades.wallet],
+      })
+      .returning({ id: schema.walletTrades.id });
 
     if (result.length === 0) continue; // dup — already alerted
     inserted++;
