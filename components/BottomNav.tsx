@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type TabKey = "disliked" | "swipe" | "liked";
+type TabKey = "disliked" | "swipe" | "liked" | "tracking";
 
 const TABS: {
   key: TabKey;
@@ -39,8 +39,21 @@ const TABS: {
     label: "Liked",
     activeColor: "text-like",
     icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M12 21s-7-4.534-9.193-9.066C1.62 9.5 2.97 6 6.36 6c1.97 0 3.32 1.16 4.14 2.4.21.32.69.32.9 0C12.22 7.16 13.57 6 15.54 6c3.39 0 4.74 3.5 3.55 5.934C19.0 16.466 12 21 12 21z" />
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+      </svg>
+    ),
+  },
+  {
+    key: "tracking",
+    href: "/tracking",
+    label: "Tracking",
+    activeColor: "text-accent",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" />
       </svg>
     ),
   },

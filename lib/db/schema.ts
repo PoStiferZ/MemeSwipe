@@ -116,8 +116,76 @@ export const swipes = pgTable(
   }),
 );
 
+/**
+ * Wallets the user wants to follow in the Tracking tab. Each row is the
+ * "I want to watch X" intent. Scoped per `owner_wallet` (the app user),
+ * the same way `swipes` is scoped — so two users can independently track
+ * the same address without interfering.
+ */
+export const trackedWallets = pgTable(
+  "tracked_wallets",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    ownerWallet: text("owner_wallet")
+      .notNull()
+      .references(() => users.wallet, { onDelete: "cascade" }),
+    trackedWallet: text("tracked_wallet").notNull(),
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    ownerTrackedUq: uniqueIndex("tracked_wallets_owner_tracked_uq").on(
+      t.ownerWallet,
+      t.trackedWallet,
+    ),
+    trackedIdx: index("tracked_wallets_tracked_idx").on(t.trackedWallet),
+  }),
+);
+
+/**
+ * Trades detected via the SWAP Helius webhook for any tracked wallet.
+ * Stored globally (one row per (signature, wallet) couple) — multiple
+ * owners watching the same wallet share the same rows; the read-side
+ * joins back through `tracked_wallets` to filter per owner.
+ */
+export const walletTrades = pgTable(
+  "wallet_trades",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    signature: text("signature").notNull(),
+    wallet: text("wallet").notNull(),
+    direction: text("direction").notNull(), // "buy" | "sell"
+    mint: text("mint").notNull(),
+    dexSource: text("dex_source"), // "PUMP_FUN" | "JUPITER" | ...
+    tokenAmount: numeric("token_amount", { precision: 30, scale: 9 }),
+    solAmount: numeric("sol_amount", { precision: 20, scale: 9 }),
+    usdValue: numeric("usd_value", { precision: 20, scale: 2 }),
+    priceUsd: numeric("price_usd", { precision: 30, scale: 12 }),
+    blockTime: timestamp("block_time", { withTimezone: true }).notNull(),
+    slot: integer("slot"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    sigWalletUq: uniqueIndex("wallet_trades_sig_wallet_uq").on(
+      t.signature,
+      t.wallet,
+    ),
+    walletTimeIdx: index("wallet_trades_wallet_time_idx").on(
+      t.wallet,
+      t.blockTime,
+    ),
+    mintIdx: index("wallet_trades_mint_idx").on(t.mint),
+  }),
+);
+
 export type Token = typeof tokens.$inferSelect;
 export type NewToken = typeof tokens.$inferInsert;
 export type Swipe = typeof swipes.$inferSelect;
+export type TrackedWallet = typeof trackedWallets.$inferSelect;
+export type WalletTrade = typeof walletTrades.$inferSelect;
 
 export const _ensureSqlImport = sql;
